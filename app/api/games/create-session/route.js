@@ -6,6 +6,8 @@ export async function POST(request) {
     // Generate unique game ID  
     const gameId = crypto.randomUUID()
     
+    console.log('Creating game session with ID:', gameId)
+    
     // Create game session in database (not published yet)
     const { data, error } = await supabase
       .from('games')
@@ -25,18 +27,24 @@ export async function POST(request) {
       .select()
       .single()
     
-    if (error) throw error
+    if (error) {
+      console.error('Supabase insert error:', error)
+      throw error
+    }
+    
+    console.log('Game session created successfully:', data)
     
     return NextResponse.json({ 
       success: true, 
       gameId: gameId,
-      status: 'Game session created'
+      status: 'Game session created',
+      data: data
     })
     
   } catch (error) {
     console.error('Error creating game session:', error)
     return NextResponse.json(
-      { error: 'Failed to create game session' },
+      { error: 'Failed to create game session: ' + error.message },
       { status: 500 }
     )
   }
