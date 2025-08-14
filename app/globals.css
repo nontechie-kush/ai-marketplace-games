@@ -2,22 +2,51 @@
 @tailwind components;
 @tailwind utilities;
 
-@layer base {
-  body {
-    @apply bg-gray-900 text-white;
-  }
+body {
+  background-color: #111827;
+  color: white;
 }
 
-@layer components {
-  .game-card {
-    @apply bg-gray-800 rounded-lg p-4 hover:bg-gray-700 transition-all duration-300 border border-gray-600 hover:border-purple-500;
-  }
-  
-  .btn-primary {
-    @apply bg-gradient-to-r from-purple-600 to-blue-600 hover:from-purple-700 hover:to-blue-700 text-white font-bold py-3 px-6 rounded-lg transition-all duration-300 transform hover:scale-105;
-  }
-  
-  .btn-secondary {
-    @apply bg-gray-700 hover:bg-gray-600 text-white font-bold py-2 px-4 rounded-lg transition-all duration-300;
-  }
+.game-card {
+  background-color: #1f2937;
+  border-radius: 0.5rem;
+  padding: 1rem;
+  border: 1px solid #4b5563;
+  transition: all 0.3s;
+}
+
+.game-card:hover {
+  background-color: #374151;
+  border-color: #8b5cf6;
+}
+
+.btn-primary {
+  background: linear-gradient(to right, #9333ea, #2563eb);
+  color: white;
+  font-weight: bold;
+  padding: 0.75rem 1.5rem;
+  border-radius: 0.5rem;
+  transition: all 0.3s;
+  display: inline-block;
+  text-decoration: none;
+}
+
+.btn-primary:hover {
+  background: linear-gradient(to right, #7c3aed, #1d4ed8);
+  transform: scale(1.05);
+}
+
+.btn-secondary {
+  background-color: #374151;
+  color: white;
+  font-weight: bold;
+  padding: 0.5rem 1rem;
+  border-radius: 0.5rem;
+  transition: all 0.3s;
+  display: inline-block;
+  text-decoration: none;
+}
+
+.btn-secondary:hover {
+  background-color: #4b5563;
 }
