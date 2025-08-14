@@ -6,6 +6,8 @@ export async function POST(request, { params }) {
     const { gameId } = params
     const { prompt, conversationHistory } = await request.json()
     
+    console.log('Generating game for ID:', gameId, 'Prompt:', prompt)
+    
     // TODO: Replace with real AI later - for now using mock
     const mockGameCode = generateMockGame(prompt)
     
@@ -25,16 +27,21 @@ export async function POST(request, { params }) {
         title: prompt.length > 50 ? prompt.substring(0, 50) + '...' : prompt,
         description: `A fun game created with AI: ${prompt}`,
         generation_metadata: {
-          ...data?.generation_metadata,
           last_generated: new Date().toISOString(),
-          prompt: prompt
+          prompt: prompt,
+          session_id: gameId
         }
       })
       .eq('game_folder_id', gameId)
       .select()
       .single()
     
-    if (error) throw error
+    if (error) {
+      console.error('Supabase error:', error)
+      throw error
+    }
+    
+    console.log('Game updated successfully:', data)
     
     return NextResponse.json({
       success: true,
@@ -45,7 +52,7 @@ export async function POST(request, { params }) {
   } catch (error) {
     console.error('Error generating game:', error)
     return NextResponse.json(
-      { error: 'Failed to generate game' },
+      { error: 'Failed to generate game: ' + error.message },
       { status: 500 }
     )
   }
@@ -60,10 +67,39 @@ function generateMockGame(prompt) {
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>${prompt}</title>
     <style>
-        body { margin: 0; padding: 20px; background: #222; color: white; font-family: Arial; text-align: center; }
-        #game { width: 400px; height: 300px; border: 2px solid #fff; margin: 20px auto; position: relative; background: #000; }
-        .player { width: 20px; height: 20px; background: #00ff00; position: absolute; top: 140px; left: 190px; }
-        .instructions { margin: 20px; }
+        body { 
+            margin: 0; 
+            padding: 20px; 
+            background: #222; 
+            color: white; 
+            font-family: Arial; 
+            text-align: center; 
+        }
+        #game { 
+            width: 400px; 
+            height: 300px; 
+            border: 2px solid #fff; 
+            margin: 20px auto; 
+            position: relative; 
+            background: #000; 
+        }
+        .player { 
+            width: 20px; 
+            height: 20px; 
+            background: #00ff00; 
+            position: absolute; 
+            top: 140px; 
+            left: 190px; 
+            transition: all 0.1s ease;
+        }
+        .instructions { 
+            margin: 20px; 
+        }
+        .controls {
+            margin: 10px;
+            font-size: 14px;
+            color: #aaa;
+        }
     </style>
 </head>
 <body>
@@ -72,7 +108,11 @@ function generateMockGame(prompt) {
         <div class="player" id="player"></div>
     </div>
     <div class="instructions">
-        <p>Use WASD keys to move the green square!</p>
+        <p>Use WASD keys or Arrow keys to move the green square!</p>
+        <div class="controls">
+            <strong>Controls:</strong><br>
+            W/↑ = Up | S/↓ = Down | A/← = Left | D/→ = Right
+        </div>
         <p>Game created with AI based on: "${prompt}"</p>
     </div>
     
@@ -80,32 +120,49 @@ function generateMockGame(prompt) {
         const player = document.getElementById('player');
         let x = 190, y = 140;
         
-        // Focus the window to capture keystrokes
-        window.focus();
+        // Focus the document to capture keystrokes
+        document.addEventListener('click', () => {
+            document.body.focus();
+        });
         
+        function updatePosition() {
+            player.style.left = x + 'px';
+            player.style.top = y + 'px';
+        }
+        
+        // Handle keyboard input
         document.addEventListener('keydown', (e) => {
             e.preventDefault();
+            
+            const speed = 15;
+            
             switch(e.key.toLowerCase()) {
-                case 'w': y = Math.max(0, y - 10); break;
-                case 's': y = Math.min(280, y + 10); break;
-                case 'a': x = Math.max(0, x - 10); break;
-                case 'd': x = Math.min(380, x + 10); break;
+                case 'w':
+                case 'arrowup':
+                    y = Math.max(0, y - speed);
+                    break;
+                case 's':
+                case 'arrowdown':
+                    y = Math.min(280, y + speed);
+                    break;
+                case 'a':
+                case 'arrowleft':
+                    x = Math.max(0, x - speed);
+                    break;
+                case 'd':
+                case 'arrowright':
+                    x = Math.min(380, x + speed);
+                    break;
             }
-            player.style.left = x + 'px';
-            player.style.top = y + 'px';
+            
+            updatePosition();
         });
         
-        // Also handle arrow keys
-        document.addEventListener('keydown', (e) => {
-            switch(e.key) {
-                case 'ArrowUp': y = Math.max(0, y - 10); break;
-                case 'ArrowDown': y = Math.min(280, y + 10); break;
-                case 'ArrowLeft': x = Math.max(0, x - 10); break;
-                case 'ArrowRight': x = Math.min(380, x + 10); break;
-            }
-            player.style.left = x + 'px';
-            player.style.top = y + 'px';
-        });
+        // Initial focus
+        document.body.focus();
+        document.body.tabIndex = -1;
+        
+        console.log('Game loaded! Use WASD or arrow keys to move.');
     </script>
 </body>
 </html>`;
