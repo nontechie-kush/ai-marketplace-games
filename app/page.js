@@ -1,35 +1,62 @@
 'use client'
 
 import { useState, useEffect } from 'react'
+import { supabase } from '../lib/supabase'
 import { Play, Star, Sparkles, ArrowRight } from 'lucide-react'
 
 export default function HomePage() {
-  const [games, setGames] = useState([
-    {
-      id: 1,
-      title: "Dodge the Angry Mom's Chappals",
-      description: "A hilarious game where you dodge flying slippers from your angry mother using arrow keys!",
-      creator_name: "GameMaster",
-      plays: 1250,
-      rating: 4.8
-    },
-    {
-      id: 2,
-      title: "Cat vs Mouse Chase",
-      description: "Control a cat to catch mice while keeping your finger pressed on the mouse. Unique gameplay!",
-      creator_name: "CatLover",
-      plays: 890,
-      rating: 4.6
-    },
-    {
-      id: 3,
-      title: "Space Shooter Mania",
-      description: "Classic space shooter with modern twist. Defend Earth from alien invasion!",
-      creator_name: "SpaceExplorer",
-      plays: 2100,
-      rating: 4.9
+  const [games, setGames] = useState([])
+  const [loading, setLoading] = useState(true)
+
+  useEffect(() => {
+    fetchGames()
+  }, [])
+
+  async function fetchGames() {
+    try {
+      const { data, error } = await supabase
+        .from('games')
+        .select('*')
+        .order('created_at', { ascending: false })
+        .limit(12)
+      
+      if (error) throw error
+      setGames(data || [])
+    } catch (error) {
+      console.error('Error fetching games:', error)
+      // Fallback to mock games if database fails
+      setGames([
+        {
+          id: 1,
+          title: "Dodge the Angry Mom's Chappals",
+          description: "A hilarious game where you dodge flying slippers from your angry mother using arrow keys!",
+          creator_name: "GameMaster",
+          plays: 1250,
+          rating: 4.8
+        },
+        {
+          id: 2,
+          title: "Cat vs Mouse Chase",
+          description: "Control a cat to catch mice while keeping your finger pressed on the mouse. Unique gameplay!",
+          creator_name: "CatLover",
+          plays: 890,
+          rating: 4.6
+        },
+        {
+          id: 3,
+          title: "Space Shooter Mania",
+          description: "Classic space shooter with modern twist. Defend Earth from alien invasion!",
+          creator_name: "SpaceExplorer",
+          plays: 2100,
+          rating: 4.9
+        }
+      ])
+    } finally {
+      setLoading(false)
     }
-  ])
+  }
+
+  const featuredGames = games.slice(0, 3)
 
   return (
     <div className="min-h-screen bg-gradient-to-br from-gray-900 via-purple-900 to-gray-900">
@@ -111,13 +138,43 @@ export default function HomePage() {
             🔥 Featured Games
           </h3>
           
-          <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
-            {games.map((game) => (
-              <GameCard key={game.id} game={game} />
-            ))}
-          </div>
+          {loading ? (
+            <div className="text-center text-gray-400">
+              <div className="text-lg">Loading games...</div>
+            </div>
+          ) : games.length === 0 ? (
+            <div className="text-center text-gray-400">
+              <div className="text-lg mb-4">No games yet! Be the first to create one.</div>
+              <a href="/create" className="btn-primary">
+                Create First Game
+              </a>
+            </div>
+          ) : (
+            <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+              {featuredGames.map((game) => (
+                <GameCard key={game.id} game={game} />
+              ))}
+            </div>
+          )}
         </div>
       </section>
+
+      {/* All Games Section */}
+      {games.length > 3 && (
+        <section className="py-16 bg-gray-800/50">
+          <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
+            <h3 className="text-3xl font-bold mb-8 text-center">
+              🌟 All Games
+            </h3>
+            
+            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+              {games.slice(3).map((game) => (
+                <GameCard key={game.id} game={game} />
+              ))}
+            </div>
+          </div>
+        </section>
+      )}
 
       {/* Create Game CTA */}
       <section className="py-20 bg-gradient-to-r from-purple-600 to-blue-600">
@@ -203,14 +260,14 @@ function GameCard({ game }) {
         <div className="flex items-center space-x-4">
           <span className="flex items-center">
             <Play className="h-4 w-4 mr-1" />
-            {game.plays}
+            {game.plays || 0}
           </span>
           <span className="flex items-center">
             <Star className="h-4 w-4 mr-1" />
-            {game.rating}
+            {game.rating || 0}
           </span>
         </div>
-        <span>by {game.creator_name}</span>
+        <span>by {game.creator_name || 'Anonymous'}</span>
       </div>
       
       <button className="w-full bg-purple-600 hover:bg-purple-700 text-white font-bold py-2 px-4 rounded transition-colors duration-300">
