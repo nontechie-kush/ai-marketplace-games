@@ -8,7 +8,21 @@ export async function POST(request, { params }) {
     
     console.log('Generating game for ID:', gameId, 'Prompt:', prompt)
     
-    // TODO: Replace with real AI later - for now using mock
+    // Find the existing game record first
+    const { data: existingGame, error: findError } = await supabase
+      .from('games')
+      .select('*')
+      .eq('game_folder_id', gameId)
+      .single()
+
+    if (findError) {
+      console.error('Could not find game with ID:', gameId, findError)
+      throw new Error('Game session not found: ' + findError.message)
+    }
+
+    console.log('Found existing game:', existingGame)
+    
+    // Generate mock game code
     const mockGameCode = generateMockGame(prompt)
     
     // Update conversation history
@@ -29,16 +43,18 @@ export async function POST(request, { params }) {
         generation_metadata: {
           last_generated: new Date().toISOString(),
           prompt: prompt,
-          session_id: gameId
-        }
+          session_id: gameId,
+          original_metadata: existingGame.generation_metadata || {}
+        },
+        updated_at: new Date().toISOString()
       })
       .eq('game_folder_id', gameId)
       .select()
       .single()
     
     if (error) {
-      console.error('Supabase error:', error)
-      throw error
+      console.error('Supabase update error:', error)
+      throw new Error('Failed to update game: ' + error.message)
     }
     
     console.log('Game updated successfully:', data)
@@ -46,7 +62,8 @@ export async function POST(request, { params }) {
     return NextResponse.json({
       success: true,
       gameCode: mockGameCode,
-      conversation: updatedConversation
+      conversation: updatedConversation,
+      gameData: data
     })
     
   } catch (error) {
@@ -72,7 +89,7 @@ function generateMockGame(prompt) {
             padding: 20px; 
             background: #222; 
             color: white; 
-            font-family: Arial; 
+            font-family: Arial, sans-serif; 
             text-align: center; 
         }
         #game { 
@@ -82,6 +99,7 @@ function generateMockGame(prompt) {
             margin: 20px auto; 
             position: relative; 
             background: #000; 
+            border-radius: 8px;
         }
         .player { 
             width: 20px; 
@@ -91,14 +109,25 @@ function generateMockGame(prompt) {
             top: 140px; 
             left: 190px; 
             transition: all 0.1s ease;
+            border-radius: 3px;
+            box-shadow: 0 0 10px #00ff00;
         }
         .instructions { 
             margin: 20px; 
+            background: #333;
+            padding: 15px;
+            border-radius: 8px;
+            max-width: 500px;
+            margin: 20px auto;
         }
         .controls {
-            margin: 10px;
+            margin: 10px 0;
             font-size: 14px;
             color: #aaa;
+        }
+        h1 {
+            color: #00ff00;
+            text-shadow: 0 0 10px #00ff00;
         }
     </style>
 </head>
@@ -108,21 +137,26 @@ function generateMockGame(prompt) {
         <div class="player" id="player"></div>
     </div>
     <div class="instructions">
-        <p>Use WASD keys or Arrow keys to move the green square!</p>
+        <p><strong>Use WASD keys or Arrow keys to move the green square!</strong></p>
         <div class="controls">
             <strong>Controls:</strong><br>
             W/↑ = Up | S/↓ = Down | A/← = Left | D/→ = Right
         </div>
-        <p>Game created with AI based on: "${prompt}"</p>
+        <p><em>Game created with AI based on: "${prompt}"</em></p>
+        <p style="font-size: 12px; color: #666;">Click on the game area first, then use controls</p>
     </div>
     
     <script>
         const player = document.getElementById('player');
+        const gameArea = document.getElementById('game');
         let x = 190, y = 140;
+        let gameActive = false;
         
-        // Focus the document to capture keystrokes
-        document.addEventListener('click', () => {
-            document.body.focus();
+        // Click to activate game
+        gameArea.addEventListener('click', () => {
+            gameActive = true;
+            gameArea.style.borderColor = '#00ff00';
+            console.log('Game activated! Use WASD or arrow keys.');
         });
         
         function updatePosition() {
@@ -132,6 +166,8 @@ function generateMockGame(prompt) {
         
         // Handle keyboard input
         document.addEventListener('keydown', (e) => {
+            if (!gameActive) return;
+            
             e.preventDefault();
             
             const speed = 15;
@@ -153,16 +189,15 @@ function generateMockGame(prompt) {
                 case 'arrowright':
                     x = Math.min(380, x + speed);
                     break;
+                default:
+                    return; // Don't update position for other keys
             }
             
             updatePosition();
         });
         
-        // Initial focus
-        document.body.focus();
-        document.body.tabIndex = -1;
-        
-        console.log('Game loaded! Use WASD or arrow keys to move.');
+        // Show initial instructions
+        console.log('Game loaded! Click the game area and use WASD or arrow keys to move.');
     </script>
 </body>
 </html>`;
