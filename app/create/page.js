@@ -1,11 +1,11 @@
 'use client'
 
 import { useState, useRef, useEffect } from 'react'
-import { supabase } from '../../lib/supabase'
 import { Send, Loader, Play, Save, ArrowLeft, Sparkles } from 'lucide-react'
 import Link from 'next/link'
 
 export default function CreateGamePage() {
+  const [gameId, setGameId] = useState(null)
   const [messages, setMessages] = useState([
     {
       role: 'assistant',
@@ -18,67 +18,49 @@ export default function CreateGamePage() {
   const [gameTitle, setGameTitle] = useState('')
   const [gameDescription, setGameDescription] = useState('')
   const [showPublishForm, setShowPublishForm] = useState(false)
+  const [isInitializing, setIsInitializing] = useState(true)
   
   const messagesEndRef = useRef(null)
+
+  useEffect(() => {
+    initializeGameSession()
+    scrollToBottom()
+  }, [])
 
   useEffect(() => {
     scrollToBottom()
   }, [messages])
 
+  // Initialize new game session
+  async function initializeGameSession() {
+    try {
+      const response = await fetch('/api/games/create-session', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' }
+      })
+      
+      const data = await response.json()
+      
+      if (data.success) {
+        setGameId(data.gameId)
+        console.log('Game session created:', data.gameId)
+      } else {
+        throw new Error('Failed to create game session')
+      }
+    } catch (error) {
+      console.error('Error initializing game session:', error)
+      alert('Failed to initialize game session. Please refresh the page.')
+    } finally {
+      setIsInitializing(false)
+    }
+  }
+
   const scrollToBottom = () => {
     messagesEndRef.current?.scrollIntoView({ behavior: "smooth" })
   }
 
-  // Mock AI game generation for now (we'll add real AI later)
-  async function generateGame(prompt) {
-    // This is a mock game - replace with real AI later
-    const mockGame = `
-<!DOCTYPE html>
-<html lang="en">
-<head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>${prompt}</title>
-    <style>
-        body { margin: 0; padding: 20px; background: #222; color: white; font-family: Arial; text-align: center; }
-        #game { width: 400px; height: 300px; border: 2px solid #fff; margin: 20px auto; position: relative; background: #000; }
-        .player { width: 20px; height: 20px; background: #00ff00; position: absolute; top: 140px; left: 190px; }
-        .instructions { margin: 20px; }
-    </style>
-</head>
-<body>
-    <h1>🎮 ${prompt}</h1>
-    <div id="game">
-        <div class="player" id="player"></div>
-    </div>
-    <div class="instructions">
-        <p>Use WASD keys to move the green square!</p>
-        <p>Game created with AI based on: "${prompt}"</p>
-    </div>
-    
-    <script>
-        const player = document.getElementById('player');
-        let x = 190, y = 140;
-        
-        document.addEventListener('keydown', (e) => {
-            switch(e.key.toLowerCase()) {
-                case 'w': y = Math.max(0, y - 10); break;
-                case 's': y = Math.min(280, y + 10); break;
-                case 'a': x = Math.max(0, x - 10); break;
-                case 'd': x = Math.min(380, x + 10); break;
-            }
-            player.style.left = x + 'px';
-            player.style.top = y + 'px';
-        });
-    </script>
-</body>
-</html>`;
-    
-    return mockGame;
-  }
-
   async function handleSendMessage() {
-    if (!input.trim() || isGenerating) return
+    if (!input.trim() || isGenerating || !gameId) return
 
     const userMessage = input.trim()
     setInput('')
@@ -88,26 +70,31 @@ export default function CreateGamePage() {
     setIsGenerating(true)
 
     try {
-      // Generate game
-      const gameCode = await generateGame(userMessage)
+      // Call generation API
+      const response = await fetch(`/api/games/generate/${gameId}`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          prompt: userMessage,
+          conversationHistory: newMessages
+        })
+      })
       
-      setCurrentGame(gameCode)
+      const data = await response.json()
       
-      // Add AI response
-      setMessages([
-        ...newMessages,
-        {
-          role: 'assistant',
-          content: "🎮 Your game is ready! You can play it below. Want me to modify anything or create a different game?"
-        }
-      ])
-      
-      // Auto-suggest title and description
-      const titleSuggestion = userMessage.length > 50 
-        ? userMessage.substring(0, 50) + "..." 
-        : userMessage
-      setGameTitle(titleSuggestion)
-      setGameDescription(`A fun game created with AI: ${userMessage}`)
+      if (data.success) {
+        setCurrentGame(data.gameCode)
+        setMessages(data.conversation)
+        
+        // Auto-suggest title and description
+        const titleSuggestion = userMessage.length > 50 
+          ? userMessage.substring(0, 50) + "..." 
+          : userMessage
+        setGameTitle(titleSuggestion)
+        setGameDescription(`A fun game created with AI: ${userMessage}`)
+      } else {
+        throw new Error(data.error || 'Failed to generate game')
+      }
       
     } catch (error) {
       console.error('Error generating game:', error)
@@ -124,34 +111,45 @@ export default function CreateGamePage() {
   }
 
   async function handlePublishGame() {
-    if (!currentGame) return
+    if (!currentGame || !gameId) return
 
     try {
-      const { data, error } = await supabase
-        .from('games')
-        .insert({
+      const response = await fetch(`/api/games/publish/${gameId}`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
           title: gameTitle,
-          description: gameDescription,
-          html_content: currentGame,
-          creator_name: 'Anonymous Creator',
-          plays: 0,
-          rating: 0
+          description: gameDescription
         })
-        .select()
-        .single()
-
-      if (error) throw error
-
-      alert('Game published successfully! 🎉')
-      setShowPublishForm(false)
+      })
       
-      // Redirect to homepage to see the published game
-      window.location.href = '/'
+      const data = await response.json()
+      
+      if (data.success) {
+        alert('Game published successfully! 🎉')
+        setShowPublishForm(false)
+        
+        // Redirect to homepage to see the published game
+        window.location.href = '/'
+      } else {
+        throw new Error(data.error || 'Failed to publish game')
+      }
       
     } catch (error) {
       console.error('Error publishing game:', error)
       alert('Error publishing game. Please try again.')
     }
+  }
+
+  if (isInitializing) {
+    return (
+      <div className="min-h-screen bg-gray-900 flex items-center justify-center">
+        <div className="text-center">
+          <Loader className="h-8 w-8 animate-spin mx-auto mb-4 text-purple-400" />
+          <p className="text-gray-400">Initializing game session...</p>
+        </div>
+      </div>
+    )
   }
 
   return (
@@ -166,6 +164,11 @@ export default function CreateGamePage() {
             <div className="flex items-center space-x-2">
               <Sparkles className="h-6 w-6 text-purple-400" />
               <h1 className="text-xl font-bold">AI Game Creator</h1>
+              {gameId && (
+                <span className="text-xs text-gray-400 font-mono">
+                  ID: {gameId.substring(0, 8)}...
+                </span>
+              )}
             </div>
           </div>
           
