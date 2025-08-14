@@ -6,34 +6,50 @@ export async function POST(request, { params }) {
     const { gameId } = params
     const { prompt, conversationHistory } = await request.json()
     
-    console.log('Generating game for ID:', gameId, 'Prompt:', prompt)
+    console.log('=== GENERATE API DEBUG ===')
+    console.log('Game ID:', gameId)
+    console.log('Prompt:', prompt)
+    console.log('Conversation History:', conversationHistory)
     
     // Find the existing game record first
-    const { data: existingGame, error: findError } = await supabase
+    const { data: existingGames, error: findError } = await supabase
       .from('games')
       .select('*')
       .eq('game_folder_id', gameId)
-      .single()
+    
+    console.log('Found games:', existingGames)
+    console.log('Find error:', findError)
 
     if (findError) {
       console.error('Could not find game with ID:', gameId, findError)
       throw new Error('Game session not found: ' + findError.message)
     }
 
-    console.log('Found existing game:', existingGame)
+    if (!existingGames || existingGames.length === 0) {
+      throw new Error('No game found with ID: ' + gameId)
+    }
+
+    if (existingGames.length > 1) {
+      console.warn('Multiple games found with same ID:', existingGames.length)
+    }
+
+    const existingGame = existingGames[0]
+    console.log('Using game:', existingGame)
     
     // Generate mock game code
     const mockGameCode = generateMockGame(prompt)
     
     // Update conversation history
     const updatedConversation = [
-      ...conversationHistory,
+      ...(conversationHistory || []),
       { role: 'user', content: prompt, timestamp: new Date().toISOString() },
       { role: 'assistant', content: 'Your game is ready! You can play it below.', timestamp: new Date().toISOString() }
     ]
     
-    // Update game in database
-    const { data, error } = await supabase
+    console.log('About to update game with ID:', gameId)
+    
+    // Update game in database - REMOVED .single() temporarily
+    const { data, error, count } = await supabase
       .from('games')
       .update({
         html_content: mockGameCode,
@@ -43,31 +59,38 @@ export async function POST(request, { params }) {
         generation_metadata: {
           last_generated: new Date().toISOString(),
           prompt: prompt,
-          session_id: gameId,
-          original_metadata: existingGame.generation_metadata || {}
+          session_id: gameId
         },
         updated_at: new Date().toISOString()
       })
       .eq('game_folder_id', gameId)
       .select()
-      .single()
+    
+    console.log('Update result:', { data, error, count })
+    console.log('Updated rows:', data?.length)
     
     if (error) {
       console.error('Supabase update error:', error)
       throw new Error('Failed to update game: ' + error.message)
     }
     
-    console.log('Game updated successfully:', data)
+    if (!data || data.length === 0) {
+      throw new Error('No rows updated - game not found')
+    }
+    
+    console.log('Game updated successfully:', data[0])
     
     return NextResponse.json({
       success: true,
       gameCode: mockGameCode,
       conversation: updatedConversation,
-      gameData: data
+      gameData: data[0]
     })
     
   } catch (error) {
-    console.error('Error generating game:', error)
+    console.error('=== GENERATE API ERROR ===')
+    console.error('Error:', error.message)
+    console.error('Stack:', error.stack)
     return NextResponse.json(
       { error: 'Failed to generate game: ' + error.message },
       { status: 500 }
@@ -75,7 +98,7 @@ export async function POST(request, { params }) {
   }
 }
 
-// Mock game generator (replace with AI later)
+// Mock game generator
 function generateMockGame(prompt) {
   return `<!DOCTYPE html>
 <html lang="en">
@@ -84,120 +107,28 @@ function generateMockGame(prompt) {
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>${prompt}</title>
     <style>
-        body { 
-            margin: 0; 
-            padding: 20px; 
-            background: #222; 
-            color: white; 
-            font-family: Arial, sans-serif; 
-            text-align: center; 
-        }
-        #game { 
-            width: 400px; 
-            height: 300px; 
-            border: 2px solid #fff; 
-            margin: 20px auto; 
-            position: relative; 
-            background: #000; 
-            border-radius: 8px;
-        }
-        .player { 
-            width: 20px; 
-            height: 20px; 
-            background: #00ff00; 
-            position: absolute; 
-            top: 140px; 
-            left: 190px; 
-            transition: all 0.1s ease;
-            border-radius: 3px;
-            box-shadow: 0 0 10px #00ff00;
-        }
-        .instructions { 
-            margin: 20px; 
-            background: #333;
-            padding: 15px;
-            border-radius: 8px;
-            max-width: 500px;
-            margin: 20px auto;
-        }
-        .controls {
-            margin: 10px 0;
-            font-size: 14px;
-            color: #aaa;
-        }
-        h1 {
-            color: #00ff00;
-            text-shadow: 0 0 10px #00ff00;
-        }
+        body { margin: 0; padding: 20px; background: #222; color: white; font-family: Arial; text-align: center; }
+        #game { width: 400px; height: 300px; border: 2px solid #fff; margin: 20px auto; position: relative; background: #000; }
+        .player { width: 20px; height: 20px; background: #00ff00; position: absolute; top: 140px; left: 190px; }
     </style>
 </head>
 <body>
     <h1>🎮 ${prompt}</h1>
-    <div id="game">
-        <div class="player" id="player"></div>
-    </div>
-    <div class="instructions">
-        <p><strong>Use WASD keys or Arrow keys to move the green square!</strong></p>
-        <div class="controls">
-            <strong>Controls:</strong><br>
-            W/↑ = Up | S/↓ = Down | A/← = Left | D/→ = Right
-        </div>
-        <p><em>Game created with AI based on: "${prompt}"</em></p>
-        <p style="font-size: 12px; color: #666;">Click on the game area first, then use controls</p>
-    </div>
-    
+    <div id="game"><div class="player" id="player"></div></div>
+    <p>Use WASD keys to move!</p>
     <script>
         const player = document.getElementById('player');
-        const gameArea = document.getElementById('game');
         let x = 190, y = 140;
-        let gameActive = false;
-        
-        // Click to activate game
-        gameArea.addEventListener('click', () => {
-            gameActive = true;
-            gameArea.style.borderColor = '#00ff00';
-            console.log('Game activated! Use WASD or arrow keys.');
-        });
-        
-        function updatePosition() {
+        document.addEventListener('keydown', (e) => {
+            switch(e.key.toLowerCase()) {
+                case 'w': y = Math.max(0, y - 10); break;
+                case 's': y = Math.min(280, y + 10); break;
+                case 'a': x = Math.max(0, x - 10); break;
+                case 'd': x = Math.min(380, x + 10); break;
+            }
             player.style.left = x + 'px';
             player.style.top = y + 'px';
-        }
-        
-        // Handle keyboard input
-        document.addEventListener('keydown', (e) => {
-            if (!gameActive) return;
-            
-            e.preventDefault();
-            
-            const speed = 15;
-            
-            switch(e.key.toLowerCase()) {
-                case 'w':
-                case 'arrowup':
-                    y = Math.max(0, y - speed);
-                    break;
-                case 's':
-                case 'arrowdown':
-                    y = Math.min(280, y + speed);
-                    break;
-                case 'a':
-                case 'arrowleft':
-                    x = Math.max(0, x - speed);
-                    break;
-                case 'd':
-                case 'arrowright':
-                    x = Math.min(380, x + speed);
-                    break;
-                default:
-                    return; // Don't update position for other keys
-            }
-            
-            updatePosition();
         });
-        
-        // Show initial instructions
-        console.log('Game loaded! Click the game area and use WASD or arrow keys to move.');
     </script>
 </body>
 </html>`;
