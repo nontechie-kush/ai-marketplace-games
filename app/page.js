@@ -17,6 +17,7 @@ export default function HomePage() {
       const { data, error } = await supabase
         .from('games')
         .select('*')
+        .eq('game_status', 'published')  // Only show published games
         .order('created_at', { ascending: false })
         .limit(12)
       
