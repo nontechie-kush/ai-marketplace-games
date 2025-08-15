@@ -6,34 +6,43 @@ export async function POST(request, { params }) {
     const { gameId } = params
     const { title, description } = await request.json()
     
-    // Update game status to published
+    console.log('Publishing game:', gameId, title)
+    
     const { data, error } = await supabase
       .from('games')
       .update({
-        title: title,
-        description: description,
+        title: title || 'Untitled Game',
+        description: description || 'A fun AI game',
         game_status: 'published',
-        creator_name: 'Anonymous Creator', // TODO: Add real user system later
+        creator_name: 'Anonymous Creator',
         plays: 0,
         rating: 0,
         updated_at: new Date().toISOString()
       })
       .eq('game_folder_id', gameId)
       .select()
-      .single()
     
-    if (error) throw error
+    if (error) {
+      console.error('Publish error:', error)
+      throw error
+    }
+    
+    if (!data || data.length === 0) {
+      throw new Error('Game not found for publishing')
+    }
+    
+    console.log('Game published:', data[0])
     
     return NextResponse.json({
       success: true,
       message: 'Game published successfully!',
-      game: data
+      game: data[0]
     })
     
   } catch (error) {
-    console.error('Error publishing game:', error)
+    console.error('Publish API error:', error)
     return NextResponse.json(
-      { error: 'Failed to publish game' },
+      { error: 'Failed to publish: ' + error.message },
       { status: 500 }
     )
   }
