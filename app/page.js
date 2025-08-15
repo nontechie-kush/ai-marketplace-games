@@ -45,8 +45,8 @@ export default async function Home() {
         <section className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
           {games.map(g => {
             // If published file exists in storage, open that; otherwise fall back to builder
-            const href = g.storage_path && publicBase
-              ? `${publicBase}/storage/v1/object/public/games/${g.storage_path}`
+            const href = g.storage_path
+              ? `/play/${g.id}`
               : `/create?gameId=${g.id}`
 
             const isPublishedFile = Boolean(g.storage_path && publicBase)
