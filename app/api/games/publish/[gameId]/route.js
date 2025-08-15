@@ -6,44 +6,53 @@ export async function POST(request, { params }) {
     const { gameId } = params
     const { title, description } = await request.json()
     
-    console.log('Publishing game:', gameId, title)
+    // STEP 1: See what games exist
+    const { data: allGames } = await supabase
+      .from('games')
+      .select('game_folder_id, title, game_status')
+      .order('created_at', { ascending: false })
+      .limit(3)
     
+    console.log('ALL RECENT GAMES:', allGames)
+    console.log('LOOKING FOR GAME ID:', gameId)
+    
+    // STEP 2: Try to find our game
+    const { data: foundGame } = await supabase
+      .from('games')
+      .select('*')
+      .eq('game_folder_id', gameId)
+    
+    console.log('FOUND GAME:', foundGame)
+    
+    if (!foundGame || foundGame.length === 0) {
+      return NextResponse.json({
+        error: `Game not found. Looking for: ${gameId}. Recent games: ${JSON.stringify(allGames)}`,
+        allGames: allGames,
+        searchedFor: gameId
+      }, { status: 404 })
+    }
+    
+    // STEP 3: Update to published
     const { data, error } = await supabase
       .from('games')
       .update({
-        title: title || 'Untitled Game',
-        description: description || 'A fun AI game',
-        game_status: 'published',
-        creator_name: 'Anonymous Creator',
-        plays: 0,
-        rating: 0,
-        updated_at: new Date().toISOString()
+        title: title,
+        description: description,
+        game_status: 'published'
       })
-      .eq('game_folder_id', gameId)
+      .eq('id', foundGame[0].id)  // Use the actual database ID
       .select()
     
-    if (error) {
-      console.error('Publish error:', error)
-      throw error
-    }
-    
-    if (!data || data.length === 0) {
-      throw new Error('Game not found for publishing')
-    }
-    
-    console.log('Game published:', data[0])
+    if (error) throw error
     
     return NextResponse.json({
       success: true,
-      message: 'Game published successfully!',
+      message: 'Game published!',
       game: data[0]
     })
     
   } catch (error) {
-    console.error('Publish API error:', error)
-    return NextResponse.json(
-      { error: 'Failed to publish: ' + error.message },
-      { status: 500 }
-    )
+    console.error('Publish error:', error)
+    return NextResponse.json({ error: error.message }, { status: 500 })
   }
 }
