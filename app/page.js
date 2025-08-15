@@ -1,5 +1,6 @@
 // app/page.js
 export const dynamic = 'force-dynamic';
+
 import Link from 'next/link'
 import { supabase } from '../lib/supabase'
 
@@ -7,7 +8,7 @@ export default async function Home() {
   // Fetch only published games, newest first
   const { data: games, error } = await supabase
     .from('games')
-    .select('id, title, description, creator_name, plays, rating, updated_at')
+    .select('id, title, description, creator_name, plays, rating, updated_at, storage_path')
     .eq('game_status', 'published')
     .order('updated_at', { ascending: false })
     .limit(24)
@@ -21,6 +22,9 @@ export default async function Home() {
       </main>
     )
   }
+
+  // Base URL for Supabase public storage (e.g., https://xyz.supabase.co)
+  const publicBase = process.env.NEXT_PUBLIC_SUPABASE_URL
 
   return (
     <main className="max-w-5xl mx-auto p-6">
@@ -39,20 +43,34 @@ export default async function Home() {
         </section>
       ) : (
         <section className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
-          {games.map(g => (
-            <article key={g.id} className="border rounded-lg p-4">
-              <h3 className="font-semibold">{g.title}</h3>
-              <p className="text-sm text-gray-700 line-clamp-3 mt-1">{g.description}</p>
-              <div className="flex items-center gap-3 text-xs text-gray-600 mt-3">
-                <span>Plays: {g.plays ?? 0}</span>
-                <span>Rating: {g.rating ?? 0}</span>
-              </div>
-              <div className="mt-4">
-                {/* Optional: Link to a dedicated game page if you add one later */}
-                <Link href={`/create?gameId=${g.id}`} className="underline text-sm">Open</Link>
-              </div>
-            </article>
-          ))}
+          {games.map(g => {
+            // If published file exists in storage, open that; otherwise fall back to builder
+            const href = g.storage_path && publicBase
+              ? `${publicBase}/storage/v1/object/public/${g.storage_path}`
+              : `/create?gameId=${g.id}`
+
+            const isPublishedFile = Boolean(g.storage_path && publicBase)
+
+            return (
+              <article key={g.id} className="border rounded-lg p-4">
+                <h3 className="font-semibold">{g.title}</h3>
+                <p className="text-sm text-gray-700 line-clamp-3 mt-1">{g.description}</p>
+                <div className="flex items-center gap-3 text-xs text-gray-600 mt-3">
+                  <span>Plays: {g.plays ?? 0}</span>
+                  <span>Rating: {g.rating ?? 0}</span>
+                </div>
+                <div className="mt-4">
+                  <Link
+                    href={href}
+                    target={isPublishedFile ? '_blank' : undefined}
+                    className="underline text-sm"
+                  >
+                    Open
+                  </Link>
+                </div>
+              </article>
+            )
+          })}
         </section>
       )}
     </main>
