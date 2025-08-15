@@ -1,3 +1,6 @@
+// app/api/games/publish/[gameId]/route.js
+export const runtime = 'nodejs'; // ensure Node (Buffer available)
+
 import { NextResponse } from 'next/server'
 import { supabaseAdmin } from '../../../../../lib/supabase'
 
@@ -8,7 +11,7 @@ export async function POST(req, { params }) {
     if (!gameId) throw new Error('Missing gameId')
     if (!title) throw new Error('Missing title')
 
-    // 1) Fetch the generated HTML from DB
+    // 1) Fetch generated HTML from DB
     const { data: existing, error: fetchErr } = await supabaseAdmin
       .from('games')
       .select('id, html_content')
@@ -17,30 +20,31 @@ export async function POST(req, { params }) {
     if (fetchErr) throw fetchErr
     if (!existing?.html_content) throw new Error('No generated HTML found for this game')
 
-    // 2) Upload to Storage as games/{id}/index.html
-    const path = `games/${gameId}/index.html`
-    // upsert so re-publish overwrites
+    // 2) Upload to Storage:
+    //    IMPORTANT: Path is relative to the *bucket* named "games".
+    //    So it should be "<id>/index.html", NOT "games/<id>/index.html".
+    const path = `${gameId}/index.html`
+
+    // Upload with proper content-type so the browser renders the file
+    const file = Buffer.from(existing.html_content, 'utf8')
     const { error: uploadErr } = await supabaseAdmin.storage
       .from('games')
-      .upload(path, new Blob([existing.html_content], { type: 'text/html' }), { upsert: true })
-    if (uploadErr && uploadErr.message?.includes('The resource already exists')) {
-      // In some environments upsert still throws; ignore that specific case.
-    } else if (uploadErr) {
-      throw uploadErr
-    }
+      .upload(path, file, {
+        upsert: true,
+        contentType: 'text/html; charset=utf-8',
+      })
+    if (uploadErr) throw uploadErr
 
-    // 3) Update DB metadata; optional: drop inline HTML after publish
+    // 3) Update DB metadata (store the relative path only)
     const { data, error } = await supabaseAdmin
       .from('games')
       .update({
         title,
         description: description ?? '',
         game_status: 'published',
-        storage_path: path,
+        storage_path: path,               // e.g. "<id>/index.html"
         published_at: new Date().toISOString(),
-        // If you want to keep srcDoc preview for edits, keep html_content.
-        // To reduce DB size, uncomment the next line to drop it post-publish:
-        // html_content: null,
+        // html_content: null,            // optional: uncomment to drop big HTML from DB
         updated_at: new Date().toISOString()
       })
       .eq('id', gameId)
