@@ -1,5 +1,6 @@
 'use client'
 
+import { supabase } from '@/lib/supabase'
 import { useState, useRef, useEffect } from 'react'
 import { Send, Loader, Play, Save, ArrowLeft, Sparkles } from 'lucide-react'
 import Link from 'next/link'
@@ -19,12 +20,50 @@ export default function CreateGamePage() {
   const [gameDescription, setGameDescription] = useState('')
   const [showPublishForm, setShowPublishForm] = useState(false)
   const [isInitializing, setIsInitializing] = useState(true)
+  const [user, setUser] = useState(null)
+  const [authChecked, setAuthChecked] = useState(false)
+
+  async function signIn() {
+    await supabase.auth.signInWithOAuth({
+      provider: 'google',
+      options: { redirectTo: `${window.location.origin}/create` }
+    })
+  }
+
+  async function signOut() {
+    await supabase.auth.signOut()
+    setUser(null)
+    setAuthChecked(true)
+  }
   
   const messagesEndRef = useRef(null)
 
   useEffect(() => {
-    initializeGameSession()
-    scrollToBottom()
+    let isMounted = true
+
+    async function run() {
+      // 1) Check current user via Supabase
+      const { data } = await supabase.auth.getUser()
+      if (!isMounted) return
+
+      const u = data?.user ?? null
+      setUser(u)
+      setAuthChecked(true)
+
+      // 2) Only initialize a game session if the user is signed in
+      if (u) {
+        await initializeGameSession()
+      } else {
+        // Ensure we exit the loading state if not signed in
+        setIsInitializing(false)
+      }
+
+      // 3) Keep the existing behavior of scrolling after mount
+      scrollToBottom()
+    }
+
+    run()
+    return () => { isMounted = false }
   }, [])
 
   useEffect(() => {
@@ -139,6 +178,39 @@ export default function CreateGamePage() {
       console.error('Error publishing game:', error)
       alert('Error publishing game. Please try again.')
     }
+  }
+
+  // Show a quick loading UI while we check auth status
+  if (!authChecked) {
+    return (
+      <div className="min-h-screen bg-gray-900 flex items-center justify-center">
+        <div className="text-center">
+          <div className="h-8 w-8 animate-spin mx-auto mb-4 rounded-full border-2 border-purple-400 border-t-transparent" />
+          <p className="text-gray-400">Checking your sign‑in…</p>
+        </div>
+      </div>
+    )
+  }
+
+  // If not signed in, gate the Create flow behind Google sign-in (Play stays public elsewhere)
+  if (!user) {
+    return (
+      <div className="min-h-screen bg-gray-900 flex items-center justify-center">
+        <div className="text-center max-w-md">
+          <h1 className="text-2xl font-bold text-white">Create a game</h1>
+          <p className="mt-3 text-gray-400">
+            You need to sign in with Google to create and publish games.
+            Playing games is open to everyone.
+          </p>
+          <button
+            onClick={signIn}
+            className="mt-6 rounded-lg bg-white px-4 py-2 text-black hover:bg-zinc-100"
+          >
+            Sign in with Google
+          </button>
+        </div>
+      </div>
+    )
   }
 
   if (isInitializing) {
