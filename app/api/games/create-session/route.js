@@ -1,50 +1,43 @@
 import { NextResponse } from 'next/server'
-import { supabase } from '../../../../lib/supabase'
+import { supabaseAdmin } from '@/lib/supabase'
 
-export async function POST(request) {
+export async function POST() {
   try {
-    // Generate unique game ID  
-    const gameId = crypto.randomUUID()
-    
-    console.log('Creating game session with ID:', gameId)
-    
-    // Create game session in database (not published yet)
-    const { data, error } = await supabase
+    const autoDeleteAt = new Date(Date.now() + 72 * 3600 * 1000).toISOString()
+
+    // Insert placeholder to satisfy NOT NULL on html_content
+    const { data, error } = await supabaseAdmin
       .from('games')
       .insert({
-        game_folder_id: gameId,
         title: 'Untitled Game',
-        description: 'Game in progress...',
-        html_content: '',
+        description: '',
+        html_content: '<!-- to be generated -->',
+        creator_id: null,
+        creator_name: null,
         game_status: 'creating',
-        conversation_history: [],
-        generation_metadata: {
-          created_at: new Date().toISOString(),
-          session_id: gameId
-        },
-        auto_delete_at: new Date(Date.now() + 72 * 60 * 60 * 1000) // 72 hours from now
+        auto_delete_at: autoDeleteAt
       })
-      .select()
+      .select('id')
       .single()
-    
-    if (error) {
-      console.error('Supabase insert error:', error)
-      throw error
-    }
-    
-    console.log('Game session created successfully:', data)
-    
-    return NextResponse.json({ 
-      success: true, 
-      gameId: gameId,
-      status: 'Game session created',
-      data: data
+
+    if (error) throw error
+
+    // Keep folder id in sync with primary key to avoid mismatches
+    const { error: updateErr } = await supabaseAdmin
+      .from('games')
+      .update({ game_folder_id: data.id })
+      .eq('id', data.id)
+
+    if (updateErr) throw updateErr
+
+    return NextResponse.json({
+      success: true,
+      gameId: data.id,
+      status: 'Game session created'
     })
-    
-  } catch (error) {
-    console.error('Error creating game session:', error)
+  } catch (e) {
     return NextResponse.json(
-      { error: 'Failed to create game session: ' + error.message },
+      { success: false, error: e.message },
       { status: 500 }
     )
   }
