@@ -1,5 +1,5 @@
 // app/api/games/publish/[gameId]/route.js
-export const runtime = 'nodejs'; // ensure Node (Buffer available)
+export const runtime = 'nodejs';
 
 import { NextResponse } from 'next/server'
 import { supabaseAdmin } from '../../../../../lib/supabase'
@@ -20,32 +20,34 @@ export async function POST(req, { params }) {
     if (fetchErr) throw fetchErr
     if (!existing?.html_content) throw new Error('No generated HTML found for this game')
 
-    // 2) Upload to Storage:
-    //    IMPORTANT: Path is relative to the *bucket* named "games".
-    //    So it should be "<id>/index.html", NOT "games/<id>/index.html".
+    // 2) Storage path (bucket = "games"; path is "<id>/index.html")
     const path = `${gameId}/index.html`
 
-    // Upload with proper content-type so the browser renders the file
+    // 2a) Remove any previous object to reset stale headers
+    await supabaseAdmin.storage.from('games').remove([path])
+
+    // 2b) Re-upload with explicit contentType and no-cache (bypass CDN stale content)
     const file = Buffer.from(existing.html_content, 'utf8')
     const { error: uploadErr } = await supabaseAdmin.storage
       .from('games')
       .upload(path, file, {
         upsert: true,
         contentType: 'text/html; charset=utf-8',
+        cacheControl: 'no-cache'
       })
     if (uploadErr) throw uploadErr
 
-    // 3) Update DB metadata (store the relative path only)
+    // 3) Update DB metadata
     const { data, error } = await supabaseAdmin
       .from('games')
       .update({
         title,
         description: description ?? '',
         game_status: 'published',
-        storage_path: path,               // e.g. "<id>/index.html"
+        storage_path: path,                 // "<id>/index.html"
         published_at: new Date().toISOString(),
-        // html_content: null,            // optional: uncomment to drop big HTML from DB
         updated_at: new Date().toISOString()
+        // html_content: null,               // optional: uncomment to drop DB HTML post-publish
       })
       .eq('id', gameId)
       .select('*')
