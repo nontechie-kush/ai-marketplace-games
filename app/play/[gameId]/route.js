@@ -6,7 +6,7 @@ export async function GET(_req, { params }) {
   if (!gameId) return new Response('Missing gameId', { status: 400 })
 
   const publicBase = process.env.NEXT_PUBLIC_SUPABASE_URL
-  const url = `${publicBase}/storage/v1/object/public/games/${gameId}/index.html`
+  const url = `${publicBase}/storage/v1/object/public/games/games/${gameId}/index.html`
 
   // no-store to avoid stale CDN variants while we iterate
   const res = await fetch(url, { cache: 'no-store' })
