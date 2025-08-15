@@ -1,6 +1,6 @@
 'use client'
 
-import { supabase } from '@/lib/supabase'
+import { supabase } from '../../lib/supabase'
 import { useState, useRef, useEffect } from 'react'
 import { Send, Loader, Play, Save, ArrowLeft, Sparkles } from 'lucide-react'
 import Link from 'next/link'
