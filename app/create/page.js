@@ -73,18 +73,26 @@ export default function CreateGamePage() {
   // Initialize new game session
   async function initializeGameSession() {
     try {
+      // 1) Get current session token from Supabase (browser stores it in localStorage)
+      const { data: { session } } = await supabase.auth.getSession()
+      const token = session?.access_token
+
+      // 2) Call API with Authorization header so server can identify the user
       const response = await fetch('/api/games/create-session', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' }
+        headers: {
+          'Content-Type': 'application/json',
+          ...(token ? { Authorization: `Bearer ${token}` } : {})
+        }
       })
-      
+
       const data = await response.json()
-      
+
       if (data.success) {
         setGameId(data.gameId)
         console.log('Game session created:', data.gameId)
       } else {
-        throw new Error('Failed to create game session')
+        throw new Error(data.error || 'Failed to create game session')
       }
     } catch (error) {
       console.error('Error initializing game session:', error)
