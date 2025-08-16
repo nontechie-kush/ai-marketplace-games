@@ -117,10 +117,16 @@ export default function CreateGamePage() {
     setIsGenerating(true)
 
     try {
-      // Call generation API
+      // Get token for this request
+      const { data: { session } } = await supabase.auth.getSession()
+      const token = session?.access_token
+
       const response = await fetch(`/api/games/generate/${gameId}`, {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: {
+          'Content-Type': 'application/json',
+          ...(token ? { Authorization: `Bearer ${token}` } : {})
+        },
         body: JSON.stringify({
           prompt: userMessage,
           conversationHistory: newMessages
@@ -161,9 +167,16 @@ export default function CreateGamePage() {
     if (!currentGame || !gameId) return
 
     try {
+      // Get token for this request
+      const { data: { session } } = await supabase.auth.getSession()
+      const token = session?.access_token
+
       const response = await fetch(`/api/games/publish/${gameId}`, {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: {
+          'Content-Type': 'application/json',
+          ...(token ? { Authorization: `Bearer ${token}` } : {})
+        },
         body: JSON.stringify({
           title: gameTitle,
           description: gameDescription
