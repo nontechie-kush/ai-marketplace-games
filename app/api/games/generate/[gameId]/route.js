@@ -57,7 +57,7 @@ export async function POST(req, { params }) {
       global: { headers: { Authorization: `Bearer ${token}` } },
       auth: { persistSession: false }
     })
-    const { data: userData, error: userErr } = await userClient.auth.getUser()
+    const { data: userData, error: userErr } = userClient.auth.getUser(token)
     if (userErr || !userData?.user) {
       if (userErr) console.error('[generate] getUser error:', userErr)
       return NextResponse.json({ success: false, error: 'Unauthorized' }, { status: 401 })
