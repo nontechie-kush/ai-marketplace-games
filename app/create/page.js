@@ -5,6 +5,20 @@ import { useState, useRef, useEffect } from 'react'
 import { Send, Loader, Play, Save, ArrowLeft, Sparkles } from 'lucide-react'
 import Link from 'next/link'
 
+// Returns a fresh access token. Refreshes if the current token is near expiry.
+async function getFreshToken() {
+  const { data: { session } } = await supabase.auth.getSession()
+  let token = session?.access_token
+  const expMs = session?.expires_at ? session.expires_at * 1000 : 0
+
+  // If token missing or expiring within 60 seconds, refresh it
+  if (!token || (expMs && expMs < Date.now() + 60_000)) {
+    const { data: refreshed } = await supabase.auth.refreshSession()
+    token = refreshed?.session?.access_token || token
+  }
+  return token
+}
+
 export default function CreateGamePage() {
   const [gameId, setGameId] = useState(null)
   const [messages, setMessages] = useState([
@@ -67,17 +81,22 @@ export default function CreateGamePage() {
   }, [])
 
   useEffect(() => {
+    const { data: sub } = supabase.auth.onAuthStateChange((_event, session) => {
+      setUser(session?.user ?? null)
+    })
+    return () => {
+      sub.subscription.unsubscribe()
+    }
+  }, [])
+
+  useEffect(() => {
     scrollToBottom()
   }, [messages])
 
   // Initialize new game session
   async function initializeGameSession() {
     try {
-      // 1) Get current session token from Supabase (browser stores it in localStorage)
-      const { data: { session } } = await supabase.auth.getSession()
-      const token = session?.access_token
-
-      // 2) Call API with Authorization header so server can identify the user
+      const token = await getFreshToken()
       const response = await fetch('/api/games/create-session', {
         method: 'POST',
         headers: {
@@ -117,10 +136,7 @@ export default function CreateGamePage() {
     setIsGenerating(true)
 
     try {
-      // Get token for this request
-      const { data: { session } } = await supabase.auth.getSession()
-      const token = session?.access_token
-
+      const token = await getFreshToken()
       const response = await fetch(`/api/games/generate/${gameId}`, {
         method: 'POST',
         headers: {
@@ -167,10 +183,7 @@ export default function CreateGamePage() {
     if (!currentGame || !gameId) return
 
     try {
-      // Get token for this request
-      const { data: { session } } = await supabase.auth.getSession()
-      const token = session?.access_token
-
+      const token = await getFreshToken()
       const response = await fetch(`/api/games/publish/${gameId}`, {
         method: 'POST',
         headers: {
