@@ -2,7 +2,7 @@
 export const runtime = 'nodejs'; // Blob is available in Node 18+
 
 import { NextResponse } from 'next/server'
-import { supabaseAdmin } from '../../../../../lib/supabase'
+import { supabaseAdmin } from '../../../../../lib/supabaseAdmin'
 
 export async function POST(req, { params }) {
   try {
