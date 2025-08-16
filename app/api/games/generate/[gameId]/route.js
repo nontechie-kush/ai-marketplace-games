@@ -47,7 +47,7 @@ export async function POST(req, { params }) {
     if (!prompt) throw new Error('Missing prompt')
 
     // 1) Authenticate caller from Authorization header (Bearer token)
-    const authHeader = req.headers.get('authorization') || ''
+    const authHeader = req.headers.get('authorization') || req.headers.get('Authorization') || req.headers.get('x-supabase-auth') || ''
     const token = authHeader.startsWith('Bearer ') ? authHeader.slice(7) : null
     if (!token) {
       return NextResponse.json({ success: false, error: 'Unauthorized' }, { status: 401 })
@@ -57,7 +57,7 @@ export async function POST(req, { params }) {
       global: { headers: { Authorization: `Bearer ${token}` } },
       auth: { persistSession: false }
     })
-    const { data: userData, error: userErr } = userClient.auth.getUser(token)
+    const { data: userData, error: userErr } = await userClient.auth.getUser()
     if (userErr || !userData?.user) {
       if (userErr) console.error('[generate] getUser error:', userErr)
       return NextResponse.json({ success: false, error: 'Unauthorized' }, { status: 401 })
