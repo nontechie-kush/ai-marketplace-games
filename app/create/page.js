@@ -37,6 +37,11 @@ export default function CreateGamePage() {
   const [user, setUser] = useState(null)
   const [authChecked, setAuthChecked] = useState(false)
 
+  // UX polish state (Step 3)
+  const [showSuccessModal, setShowSuccessModal] = useState(false)
+  const [playLink, setPlayLink] = useState('')
+  const [copied, setCopied] = useState(false)
+
   async function signIn() {
     await supabase.auth.signInWithOAuth({
       provider: 'google',
@@ -199,11 +204,10 @@ export default function CreateGamePage() {
       const data = await response.json()
       
       if (data.success) {
-        alert('Game published successfully! 🎉')
         setShowPublishForm(false)
-        
-        // Redirect to homepage to see the published game
-        window.location.href = '/'
+        const link = `${window.location.origin}/play/${gameId}`
+        setPlayLink(link)
+        setShowSuccessModal(true)
       } else {
         throw new Error(data.error || 'Failed to publish game')
       }
@@ -211,6 +215,17 @@ export default function CreateGamePage() {
     } catch (error) {
       console.error('Error publishing game:', error)
       alert('Error publishing game. Please try again.')
+    }
+  }
+
+  // Step 3: helper to copy the play link
+  async function copyPlayLink() {
+    try {
+      await navigator.clipboard.writeText(playLink)
+      setCopied(true)
+      setTimeout(() => setCopied(false), 1200)
+    } catch (e) {
+      console.error('copy failed', e)
     }
   }
 
@@ -287,6 +302,11 @@ export default function CreateGamePage() {
               Publish Game
             </button>
           )}
+          {/* Step 3: Signed-in chip */}
+          <div className="hidden sm:flex items-center gap-2 rounded-full bg-gray-700 px-3 py-1 text-sm text-gray-200">
+            <span>Signed in as {user?.user_metadata?.full_name || user?.email}</span>
+            <button onClick={signOut} className="underline hover:text-white">Sign out</button>
+          </div>
         </div>
       </header>
 
@@ -418,6 +438,24 @@ export default function CreateGamePage() {
               >
                 Publish
               </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Step 3: Publish Success Modal */}
+      {showSuccessModal && (
+        <div className="fixed inset-0 bg-black bg-opacity-60 flex items-center justify-center z-50">
+          <div className="bg-gray-800 rounded-2xl p-6 w-[92%] max-w-md shadow-xl">
+            <h3 className="text-xl font-bold mb-2">Your game is live! 🎉</h3>
+            <p className="text-gray-300 mb-4">Share this link so anyone can play:</p>
+            <div className="flex items-center gap-2 mb-4">
+              <input value={playLink} readOnly className="flex-1 bg-gray-700 border border-gray-600 rounded px-3 py-2 text-sm" />
+              <button onClick={copyPlayLink} className="btn-secondary min-w-[84px]">{copied ? 'Copied' : 'Copy'}</button>
+            </div>
+            <div className="flex gap-3">
+              <button onClick={() => setShowSuccessModal(false)} className="btn-secondary flex-1">Close</button>
+              <button onClick={() => (window.location.href = '/')} className="btn-primary flex-1">Go to Home</button>
             </div>
           </div>
         </div>
