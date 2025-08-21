@@ -34,11 +34,18 @@ export async function POST(req) {
       .insert({
         title: 'Untitled Game',
         description: '',
-        html_content: '<!-- to be generated -->',
+        // Spec-first architecture defaults
+        spec_json: {},                 // start empty spec
+        brief_summary: null,           // optional rolling 300-char summary
+        conversation_history: [],      // empty chat history
+        html_content: null,            // IMPORTANT: no HTML at creation
+        storage_path: null,            // not published yet
+
+        // Creator & lifecycle
         creator_id: user.id,
         creator_name: user.user_metadata?.full_name ?? user.email ?? null,
-        game_status: 'creating',
-        auto_delete_at: autoDeleteAt,
+        game_status: 'creating',       // stays 'creating' until compile succeeds
+        auto_delete_at: autoDeleteAt
       })
       .select('id')
       .single()
