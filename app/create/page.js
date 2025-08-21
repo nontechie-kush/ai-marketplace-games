@@ -5,6 +5,11 @@ import { useState, useRef, useEffect } from 'react'
 import { Send, Loader, Play, Save, ArrowLeft, Sparkles } from 'lucide-react'
 import Link from 'next/link'
 
+// Kill‑switch: if NEXT_PUBLIC_CREATION_ENABLED === 'false', lock the /create UI
+const CREATION_ENABLED = (typeof process !== 'undefined'
+  ? process.env.NEXT_PUBLIC_CREATION_ENABLED !== 'false'
+  : true);
+
 // Returns a fresh access token. Refreshes if the current token is near expiry.
 async function getFreshToken() {
   const { data: { session } } = await supabase.auth.getSession()
@@ -37,6 +42,9 @@ export default function CreateGamePage() {
   const [user, setUser] = useState(null)
   const [authChecked, setAuthChecked] = useState(false)
 
+  // Global creation kill‑switch (from env)
+  const creationEnabled = CREATION_ENABLED;
+
   // UX polish state (Step 3)
   const [showSuccessModal, setShowSuccessModal] = useState(false)
   const [playLink, setPlayLink] = useState('')
@@ -68,6 +76,13 @@ export default function CreateGamePage() {
       const u = data?.user ?? null
       setUser(u)
       setAuthChecked(true)
+
+      // If creation is disabled globally, stop here
+      if (!CREATION_ENABLED) {
+        setIsInitializing(false);
+        scrollToBottom();
+        return;
+      }
 
       // 2) Only initialize a game session if the user is signed in
       if (u) {
@@ -241,6 +256,23 @@ export default function CreateGamePage() {
     )
   }
 
+  // If creation is globally paused, show lock UI (regardless of auth)
+  if (!creationEnabled) {
+    return (
+      <div className="min-h-screen bg-gray-900 flex items-center justify-center p-6">
+        <div className="max-w-lg w-full rounded-xl border border-amber-500 bg-amber-50/10 p-6 text-amber-100">
+          <h1 className="text-2xl font-bold mb-2">Game creation is temporarily paused</h1>
+          <p className="text-amber-200/90">
+            We’re controlling AI costs while we scale. You can still play all published games from the homepage.
+          </p>
+          <div className="mt-6 flex gap-3">
+            <a href="/" className="btn-primary inline-flex items-center justify-center px-4 py-2 rounded-lg">Go to Home</a>
+          </div>
+        </div>
+      </div>
+    )
+  }
+
   // If not signed in, gate the Create flow behind Google sign-in (Play stays public elsewhere)
   if (!user) {
     return (
@@ -275,6 +307,12 @@ export default function CreateGamePage() {
 
   return (
     <div className="min-h-screen bg-gray-900 flex flex-col">
+      {/* Global pause banner (won't render because of early return, kept for safety if logic changes) */}
+      {(!creationEnabled) && (
+        <div className="bg-amber-500/10 text-amber-200 text-sm text-center py-2 border-b border-amber-500">
+          Creation is paused. You can still play from the homepage.
+        </div>
+      )}
       {/* Header */}
       <header className="border-b border-gray-700 bg-gray-800 p-4">
         <div className="flex items-center justify-between max-w-7xl mx-auto">
@@ -351,13 +389,13 @@ export default function CreateGamePage() {
                 value={input}
                 onChange={(e) => setInput(e.target.value)}
                 onKeyPress={(e) => e.key === 'Enter' && handleSendMessage()}
-                placeholder="Describe your game idea..."
+                placeholder={creationEnabled ? "Describe your game idea..." : "Creation is paused"}
                 className="flex-1 bg-gray-800 border border-gray-600 rounded-lg px-4 py-2 focus:outline-none focus:border-purple-500"
-                disabled={isGenerating}
+                disabled={!creationEnabled || isGenerating}
               />
               <button
                 onClick={handleSendMessage}
-                disabled={isGenerating || !input.trim()}
+                disabled={!creationEnabled || isGenerating || !input.trim()}
                 className="btn-primary"
               >
                 <Send className="h-4 w-4" />
