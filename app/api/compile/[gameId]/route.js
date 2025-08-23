@@ -1,7 +1,7 @@
 import { NextResponse } from 'next/server'
 import { createClient } from '@supabase/supabase-js'
-import { supabaseAdmin } from '../../../../../lib/supabaseAdmin'
-import { compile as compileFromSpec } from '../../../../../lib/compiler'
+import { supabaseAdmin } from '../../../../lib/supabaseAdmin'
+import { compile as compileFromSpec } from '../../../../lib/compiler'
 
 const SUPABASE_URL = process.env.NEXT_PUBLIC_SUPABASE_URL
 const SUPABASE_ANON = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY
