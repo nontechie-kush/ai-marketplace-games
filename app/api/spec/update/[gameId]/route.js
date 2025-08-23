@@ -1,0 +1,155 @@
+import { NextResponse } from 'next/server'
+import { createClient } from '@supabase/supabase-js'
+import { supabaseAdmin } from '../../../../../lib/supabaseAdmin'
+
+const SUPABASE_URL = process.env.NEXT_PUBLIC_SUPABASE_URL
+const SUPABASE_ANON = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY
+
+// --- Helpers (small, local) ---
+function applyJsonPatch(target, ops = []) {
+  const clone = JSON.parse(JSON.stringify(target || {}))
+  const getParentAndKey = (obj, path) => {
+    if (!path || path === '/') return [null, null]
+    const parts = path.replace(/^\//, '').split('/').map(p => p.replace(/~1/g,'/').replace(/~0/g,'~'))
+    const key = parts.pop()
+    let parent = obj
+    for (const part of parts) {
+      if (parent[part] === undefined) parent[part] = {}
+      parent = parent[part]
+    }
+    return [parent, key]
+  }
+  for (const op of ops) {
+    const { op: kind, path } = op
+    const [parent, key] = getParentAndKey(clone, path)
+    if (!parent) continue
+    if (kind === 'add' || kind === 'replace') parent[key] = op.value
+    else if (kind === 'remove') delete parent[key]
+  }
+  return clone
+}
+
+function defaultSpec(prompt) {
+  return {
+    meta: { title: (prompt || 'Untitled Game').slice(0,60), theme: 'dark' },
+    scene: { size: { w: 800, h: 500 }, tiles: null },
+    player: { controller: 'topdown', speed: 200, hp: 1, weapons: [] },
+    entities: [], enemies: [],
+    goals: ['survive_timer'],
+    rules: { difficulty: 'normal' },
+    controls: ['wasd'],
+    aesthetics: { palette: 'midnight', sfx: [] },
+    notes: ''
+  }
+}
+
+async function fetchSpecPatch(userPrompt, currentSpec, conversationHistory, briefSummary) {
+  const apiKey = process.env.ANTHROPIC_API_KEY
+  if (!apiKey) {
+    return [
+      { op: 'add', path: '/meta/title', value: (userPrompt || 'Your Game').slice(0,60) },
+      { op: 'add', path: '/notes', value: ((briefSummary || '') + ' ' + (userPrompt || '')).trim() }
+    ]
+  }
+  const sys = [
+    'You are a game spec editor. Output ONLY a valid RFC-6902 JSON Patch array.',
+    'Schema keys: meta, scene, player, entities, enemies, goals, rules, controls, aesthetics, notes.',
+    'No code, no commentary.'
+  ].join(' ')
+  const messages = [
+    ...((conversationHistory ?? []).slice(-6)),
+    { role: 'user', content: `User request: ${userPrompt}\nCurrent Spec (JSON): ${JSON.stringify(currentSpec || {})}` }
+  ]
+  const res = await fetch('https://api.anthropic.com/v1/messages', {
+    method: 'POST',
+    headers: {
+      'x-api-key': apiKey,
+      'anthropic-version': '2023-06-01',
+      'content-type': 'application/json'
+    },
+    body: JSON.stringify({ model: 'claude-3-5-haiku-latest', max_tokens: 800, temperature: 0.2, system: sys, messages })
+  })
+  if (!res.ok) {
+    const t = await res.text()
+    throw new Error(`Anthropic error: ${t}`)
+  }
+  const body = await res.json()
+  const text = (body?.content?.[0]?.text || '').trim()
+  try {
+    const patch = JSON.parse(text)
+    return Array.isArray(patch) ? patch : []
+  } catch {
+    return [
+      { op: 'add', path: '/meta/title', value: (userPrompt || 'Your Game').slice(0,60) },
+      { op: 'add', path: '/notes', value: ((briefSummary || '') + ' ' + (userPrompt || '')).trim() }
+    ]
+  }
+}
+
+function summarize(s, limit = 300) {
+  if (!s) return ''
+  return s.length > limit ? s.slice(0, limit - 1) + '…' : s
+}
+
+// --- Route: PATCH SPEC ONLY (no compile) ---
+export async function POST(req, { params }) {
+  try {
+    const { gameId } = params
+    const { prompt, conversationHistory = [] } = await req.json()
+    if (!gameId) throw new Error('Missing gameId')
+    if (!prompt) throw new Error('Missing prompt')
+
+    // Auth
+    const authHeader = req.headers.get('authorization') || req.headers.get('Authorization') || req.headers.get('x-supabase-auth') || ''
+    const token = authHeader.startsWith('Bearer ') ? authHeader.slice(7) : null
+    if (!token) return NextResponse.json({ success: false, error: 'Unauthorized' }, { status: 401 })
+    const userClient = createClient(SUPABASE_URL, SUPABASE_ANON, {
+      global: { headers: { Authorization: `Bearer ${token}` } },
+      auth: { persistSession: false }
+    })
+    const { data: userData, error: userErr } = await userClient.auth.getUser()
+    if (userErr || !userData?.user) return NextResponse.json({ success: false, error: 'Unauthorized' }, { status: 401 })
+    const user = userData.user
+
+    // Ownership + fetch
+    const { data: gameRow, error: fetchErr } = await supabaseAdmin
+      .from('games')
+      .select('id, creator_id, spec_json, brief_summary, conversation_history')
+      .eq('id', gameId).single()
+    if (fetchErr) return NextResponse.json({ success: false, error: 'Game not found' }, { status: 404 })
+    if (gameRow.creator_id && gameRow.creator_id !== user.id) return NextResponse.json({ success: false, error: 'Forbidden' }, { status: 403 })
+
+    // Patch spec
+    const currentSpec = gameRow.spec_json || defaultSpec(prompt)
+    const patch = await fetchSpecPatch(prompt, currentSpec, gameRow.conversation_history || conversationHistory, gameRow.brief_summary || '')
+    const nextSpec = applyJsonPatch(currentSpec, patch)
+
+    // Persist (no html_content here)
+    const updatedConversation = [...(gameRow.conversation_history || []), { role: 'user', content: prompt }]
+    const newSummary = summarize(((gameRow.brief_summary || '') + ' ' + prompt).trim())
+
+    const { data, error } = await supabaseAdmin
+      .from('games')
+      .update({
+        spec_json: nextSpec,
+        brief_summary: newSummary,
+        conversation_history: updatedConversation,
+        updated_at: new Date().toISOString(),
+        generation_metadata: {
+          strategy: 'patchOnly',
+          model: process.env.ANTHROPIC_API_KEY ? 'claude-3-5-haiku-latest' : 'mock',
+          patch_size: Array.isArray(patch) ? patch.length : 0,
+          generated_at: new Date().toISOString()
+        }
+      })
+      .eq('id', gameId)
+      .select('id, conversation_history, spec_json')
+      .single()
+
+    if (error) return NextResponse.json({ success: false, error: error.message }, { status: 500 })
+    return NextResponse.json({ success: true, spec: data.spec_json, conversation: data.conversation_history, patchApplied: true })
+  } catch (e) {
+    console.error('[spec/update] error:', e)
+    return NextResponse.json({ success: false, error: e.message }, { status: 500 })
+  }
+}
