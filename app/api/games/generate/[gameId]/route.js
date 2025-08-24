@@ -3,11 +3,8 @@ import { createClient } from '@supabase/supabase-js'
 import { supabaseAdmin } from '../../../../../lib/supabaseAdmin'
 import { compile as compileFromSpec } from '../../../../../lib/compiler'
 import crypto from 'node:crypto'
-
-const SUPABASE_URL = process.env.NEXT_PUBLIC_SUPABASE_URL
-const SUPABASE_ANON = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY
-const ANTHROPIC_URL = 'https://api.anthropic.com/v1/messages'
-const ANTHROPIC_MODEL = 'claude-3-5-haiku-latest' // cost-optimized
+import { proposeSpecPatch } from '../../../../../lib/llm/spec_editor'
+import { MODEL as ANTHROPIC_MODEL } from '../../../../../lib/llm/client'
 
 /** RFC6902 minimal applier: add/replace/remove */
 function applyJsonPatch(target, ops = []) {
@@ -64,111 +61,6 @@ function safeCompile(spec) {
     `</body></html>`
 }
 
-// -------------------- Simple server-side cache (Supabase table: prompt_cache) --------------------
-async function getCache(cache_key) {
-  try {
-    const { data, error } = await supabaseAdmin
-      .from('prompt_cache')
-      .select('value, expires_at')
-      .eq('cache_key', cache_key)
-      .maybeSingle()
-    if (error || !data) return null
-    if (new Date(data.expires_at) < new Date()) return null
-    return data.value
-  } catch { return null }
-}
-
-async function setCache(cache_key, value, ttlSeconds = 1800) { // 30m default
-  try {
-    const expires_at = new Date(Date.now() + ttlSeconds * 1000).toISOString()
-    await supabaseAdmin
-      .from('prompt_cache')
-      .upsert({ cache_key, value, expires_at })
-  } catch (e) {
-    console.warn('[cache] upsert failed (ok if table missing):', e?.message)
-  }
-}
-
-function hashKey(obj) {
-  return crypto.createHash('sha256').update(JSON.stringify(obj)).digest('hex')
-}
-
-async function fetchSpecPatch(userPrompt, currentSpec, briefSummary) {
-  const apiKey = process.env.ANTHROPIC_API_KEY
-
-  // Build a versioned cache key using SHORT CONTEXT only (spec + 300-char brief)
-  const cachePayload = {
-    v: 'spec_v1',
-    userPrompt,
-    brief: summarize(briefSummary || '', 300),
-    spec: {
-      meta: currentSpec?.meta,
-      scene: currentSpec?.scene,
-      player: currentSpec?.player,
-      goals: currentSpec?.goals,
-      rules: currentSpec?.rules
-    }
-  }
-  const cache_key = 'spec:' + hashKey(cachePayload)
-
-  // Try cache first
-  const cached = await getCache(cache_key)
-  if (cached) return cached
-
-  // If no API key, provide deterministic fallback and cache briefly
-  if (!apiKey) {
-    const fallback = [
-      { op: 'add', path: '/meta/title', value: (userPrompt || 'Your Game').slice(0,60) },
-      { op: 'add', path: '/notes', value: summarize(((briefSummary || '') + ' ' + (userPrompt || '')).trim(), 300) }
-    ]
-    await setCache(cache_key, fallback, 300)
-    return fallback
-  }
-
-  const system = [
-    'You are a game spec editor. Output ONLY a valid RFC-6902 JSON Patch array.',
-    'Schema keys: meta, scene, player, entities, enemies, goals, rules, controls, aesthetics, notes.',
-    'No code, no commentary.'
-  ].join(' ')
-
-  const shortBrief = summarize(briefSummary || '', 300)
-  const shortSpec = JSON.stringify(currentSpec || {})
-
-  const reqBody = {
-    model: ANTHROPIC_MODEL,
-    max_tokens: 800,
-    temperature: 0.2,
-    system,
-    messages: [
-      { role: 'user', content: `BRIEF SUMMARY (<=300 chars):\n${shortBrief}\n\nCURRENT SPEC_JSON:\n${shortSpec}\n\nUSER MESSAGE:\n${userPrompt}\n\nReturn ONLY a JSON array of RFC-6902 operations.` }
-    ]
-  }
-
-  const res = await fetch(ANTHROPIC_URL, {
-    method: 'POST',
-    headers: {
-      'x-api-key': apiKey,
-      'anthropic-version': '2023-06-01',
-      'content-type': 'application/json'
-    },
-    body: JSON.stringify(reqBody)
-  })
-
-  if (!res.ok) {
-    const t = await res.text()
-    throw new Error(`Anthropic error: ${t}`)
-  }
-
-  const body = await res.json()
-  const text = (body?.content?.[0]?.text || '').trim()
-  let patch = []
-  try { patch = JSON.parse(text); if (!Array.isArray(patch)) patch = [] } catch { patch = [] }
-
-  // Store in cache (short TTL since spec evolves often)
-  await setCache(cache_key, patch, 30 * 60)
-  return patch
-}
-
 export async function POST(req, { params }) {
   try {
     const { gameId } = params
@@ -200,8 +92,20 @@ export async function POST(req, { params }) {
 
     // 3) Patch spec via Anthropic (with caching), then compile
     const currentSpec = gameRow.spec_json || defaultSpec(prompt)
-    const patch = await fetchSpecPatch(prompt, currentSpec, gameRow.brief_summary || '')
+    const patch = await proposeSpecPatch({
+      spec: currentSpec,
+      userPrompt: prompt,
+      briefSummary: gameRow.brief_summary || ''
+    })
     const nextSpec = applyJsonPatch(currentSpec, patch)
+
+    // Safety: if user clearly asked for bubbles but template is missing, force bubble_clicker
+    if (!nextSpec?.meta?.template && /bubble|bubbles|prick|pop/i.test(prompt || '')) {
+      nextSpec.meta = nextSpec.meta || {}
+      if (!nextSpec.meta.title) nextSpec.meta.title = 'Bubble Rush'
+      nextSpec.meta.template = 'bubble_clicker'
+    }
+
     const html = safeCompile(nextSpec)
 
     // 4) Persist updates (rolling 300-char brief)
