@@ -129,6 +129,7 @@ export default function CreateGamePage() {
 
       if (data.success) {
         setGameId(data.gameId)
+        window.__lastGameId = data.gameId
         console.log('Game session created:', data.gameId)
       } else {
         throw new Error(data.error || 'Failed to create game session')
@@ -146,7 +147,10 @@ export default function CreateGamePage() {
   }
 
   async function handleSendMessage() {
-    if (!input.trim() || isGenerating || !gameId) return
+    if (!input.trim() || isGenerating || !gameId) {
+      console.log('[send] blocked', { hasInput: !!input.trim(), isGenerating, gameId })
+      return
+    }
 
     const userMessage = input.trim()
     setInput('')
@@ -154,9 +158,11 @@ export default function CreateGamePage() {
     const newMessages = [...messages, { role: 'user', content: userMessage }]
     setMessages(newMessages)
     setIsGenerating(true)
+    console.log('[send] starting generate', { gameId, userMessageLen: userMessage.length })
+    const token = await getFreshToken()
+    console.log('[send] token', !!token)
 
     try {
-      const token = await getFreshToken()
       const response = await fetch(`/api/games/generate/${gameId}`, {
         method: 'POST',
         headers: {
@@ -168,8 +174,9 @@ export default function CreateGamePage() {
           conversationHistory: newMessages
         })
       })
-      
+      console.log('[send] fetch done', { status: response.status })
       const data = await response.json()
+      console.log('[send] generate result', data)
       
       if (data.success) {
         setCurrentGame(data.gameCode)
@@ -388,7 +395,12 @@ export default function CreateGamePage() {
                 type="text"
                 value={input}
                 onChange={(e) => setInput(e.target.value)}
-                onKeyPress={(e) => e.key === 'Enter' && handleSendMessage()}
+                onKeyDown={(e) => {
+                  if (e.key === 'Enter' && !e.shiftKey) {
+                    e.preventDefault();
+                    handleSendMessage();
+                  }
+                }}
                 placeholder={creationEnabled ? "Describe your game idea..." : "Creation is paused"}
                 className="flex-1 bg-gray-800 border border-gray-600 rounded-lg px-4 py-2 focus:outline-none focus:border-purple-500"
                 disabled={!creationEnabled || isGenerating}
