@@ -4,6 +4,8 @@ import { supabaseAdmin } from '../../../../lib/supabaseAdmin'
 
 const SUPABASE_URL = process.env.NEXT_PUBLIC_SUPABASE_URL
 const SUPABASE_ANON = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY
+// Minimal valid HTML so `html_content` is NEVER NULL at insert time
+const PLACEHOLDER_HTML = '<!DOCTYPE html><html><body><div id="game"></div></body></html>'
 
 export async function POST(req) {
   try {
@@ -36,9 +38,9 @@ export async function POST(req) {
         description: '',
         // Spec-first architecture defaults
         spec_json: {},                 // start empty spec
-        brief_summary: null,           // optional rolling 300-char summary
+        brief_summary: '',             // avoid NULL; rolling 300-char summary later
         conversation_history: [],      // empty chat history
-        html_content: null,            // IMPORTANT: no HTML at creation
+        html_content: PLACEHOLDER_HTML, // seed non-null HTML to satisfy NOT NULL
         storage_path: null,            // not published yet
 
         // Creator & lifecycle
