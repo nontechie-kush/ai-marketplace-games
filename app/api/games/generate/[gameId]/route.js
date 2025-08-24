@@ -229,7 +229,14 @@ export async function POST(req, { params }) {
 
     if (error) return NextResponse.json({ success: false, error: error.message }, { status: 500 })
 
-    return NextResponse.json({ success: true, gameCode: data.html_content, conversation: data.conversation_history, spec: data.spec_json })
+    //return NextResponse.json({ success: true, gameCode: data.html_content, conversation: data.conversation_history, spec: data.spec_json })
+    return NextResponse.json({
+      success: true,
+      gameCode: data.html_content,
+      conversation: data.conversation_history,
+      spec: data.spec_json,
+      used_model: process.env.ANTHROPIC_API_KEY ? ANTHROPIC_MODEL : 'mock'
+    })
   } catch (e) {
     console.error('[generate] unexpected error:', e)
     return NextResponse.json({ success: false, error: e.message }, { status: 500 })
