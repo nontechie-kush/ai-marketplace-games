@@ -1,6 +1,6 @@
 import { NextResponse } from 'next/server'
 import { createClient } from '@supabase/supabase-js'
-import { supabaseAdmin } from '../../../../lib/supabaseAdmin'
+import { getAdminSupabase } from '../../../../lib/supabaseServer'
 import { compile as compileFromSpec } from '../../../../lib/compiler'
 
 const SUPABASE_URL = process.env.NEXT_PUBLIC_SUPABASE_URL
@@ -33,6 +33,7 @@ function safeCompile(spec) {
 
 export async function POST(req, { params }) {
   try {
+    const supabaseAdmin = getAdminSupabase();
     const { gameId } = params
     const { specOverride = null } = await req.json().catch(() => ({ specOverride: null }))
     if (!gameId) throw new Error('Missing gameId')
