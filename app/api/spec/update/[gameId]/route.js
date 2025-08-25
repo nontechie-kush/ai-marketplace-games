@@ -4,8 +4,8 @@ export const dynamic = 'force-dynamic';
 
 import { NextResponse } from 'next/server';
 import { createClient } from '@supabase/supabase-js';
-import { supabaseAdmin } from '../../../../../lib/supabaseServer';
-import { proposeSpecPatch } from '../../../../../lib/llm/spec_editor';
+import { supabaseAdmin } from '@/lib/supabaseServer';
+import { proposeSpecPatch } from '@/lib/llm/spec_editor';
 
 // Two-client pattern: anon for user auth, admin for privileged writes
 const SUPABASE_URL = process.env.NEXT_PUBLIC_SUPABASE_URL;
