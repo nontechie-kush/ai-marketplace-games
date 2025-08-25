@@ -3,13 +3,14 @@ export const runtime = 'nodejs' // Blob is available in Node 18+
 
 import { NextResponse } from 'next/server'
 import { createClient } from '@supabase/supabase-js'
-import { supabaseAdmin } from '../../../../../lib/supabaseServer'
+import { getAdminSupabase } from '../../../../../lib/supabaseServer'
 
 const SUPABASE_URL = process.env.SUPABASE_URL || process.env.NEXT_PUBLIC_SUPABASE_URL
 const SUPABASE_ANON = process.env.SUPABASE_ANON_KEY || process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY
 
 export async function POST(req, { params }) {
   try {
+    const supabaseAdmin = getAdminSupabase();
     // Ensure server envs are present (works with either private or NEXT_PUBLIC names)
     if (!SUPABASE_URL || !SUPABASE_ANON) {
       console.error('[publish] Missing Supabase envs');
