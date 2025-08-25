@@ -2,7 +2,7 @@
 export const dynamic = 'force-dynamic';
 
 import Link from 'next/link'
-import { supabase } from '../lib/supabase';
+import { getAdminSupabase } from '../lib/supabaseServer.server';
 
 // utils
 function fmt(n) {
@@ -17,12 +17,13 @@ function dateLabel(iso) {
 
 export default async function Home() {
   // Fetch only published games, newest first
-  const { data: games, error } = await supabase
+  const db = getAdminSupabase();
+  const { data: games, error } = await db
     .from('games')
     .select('id, title, description, creator_name, plays, rating, updated_at, storage_path')
     .eq('game_status', 'published')
     .order('updated_at', { ascending: false })
-    .limit(60)
+    .limit(60);
 
   if (error) {
     return (
