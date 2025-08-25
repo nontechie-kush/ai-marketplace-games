@@ -2,7 +2,7 @@ export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
 
 import { NextResponse } from 'next/server'
-import { getAdminSupabase } from '../../../../../lib/supabaseServer.server'
+import { getAdminSupabase } from '../../../../../lib/supabaseServer.server.js'
 import { createClient } from '@supabase/supabase-js'
 import { compile as compileFromSpec } from '../../../../../lib/compiler'
 import { proposeSpecPatch } from '../../../../../lib/llm/spec_editor'
