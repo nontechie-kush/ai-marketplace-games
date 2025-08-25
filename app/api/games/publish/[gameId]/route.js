@@ -1,9 +1,10 @@
 // app/api/games/publish/[gameId]/route.js
 export const runtime = 'nodejs' // Blob is available in Node 18+
+export const dynamic = 'force-dynamic'
 
 import { NextResponse } from 'next/server'
 import { createClient } from '@supabase/supabase-js'
-import { getAdminSupabase } from '../../../../../lib/supabaseServer'
+import { getAdminSupabase } from '@/lib/supabaseServer'
 
 const SUPABASE_URL = process.env.SUPABASE_URL || process.env.NEXT_PUBLIC_SUPABASE_URL
 const SUPABASE_ANON = process.env.SUPABASE_ANON_KEY || process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY
@@ -57,8 +58,8 @@ export async function POST(req, { params }) {
       .select('id, creator_id, html_content')
       .eq('id', gameId)
       .single()
-    if (fetchErr) {
-      console.error('[publish] fetch game error:', fetchErr)
+    if (fetchErr || !gameRow) {
+      if (fetchErr) console.error('[publish] fetch game error:', fetchErr)
       return NextResponse.json({ success: false, error: 'game_not_found' }, { status: 404 })
     }
     if (gameRow.creator_id && gameRow.creator_id !== user.id) {
@@ -75,7 +76,8 @@ export async function POST(req, { params }) {
     const path = `games/${gameId}/index.html`
 
     // 2a) Remove any previous version to clear stale metadata
-    await supabaseAdmin.storage.from('games').remove([path])
+    // Ignore "not found" errors during cleanup
+    await supabaseAdmin.storage.from('games').remove([path]).catch(() => {})
 
     // 2b) Upload as HTML Blob so Supabase sets correct Content-Type
     const blob = new Blob([gameRow.html_content], { type: 'text/html; charset=utf-8' })
@@ -116,7 +118,7 @@ export async function POST(req, { params }) {
       )
     }
 
-    const cdnUrl = `${process.env.NEXT_PUBLIC_SUPABASE_URL}/storage/v1/object/public/${path}`
+    const cdnUrl = `${process.env.NEXT_PUBLIC_SUPABASE_URL}/storage/v1/object/public/${encodeURI(path)}`
 
     return NextResponse.json({ success: true, message: 'Game published!', game: data, cdnUrl })
   } catch (e) {
