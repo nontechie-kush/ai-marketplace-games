@@ -4,7 +4,7 @@ export const dynamic = 'force-dynamic';
 
 import { NextResponse } from 'next/server';
 import { createClient } from '@supabase/supabase-js';
-import { getAdminSupabase } from '../../../../lib/supabaseServer.server';
+import { getAdminSupabase } from '../../../../lib/supabaseServer.server.js';
 
 // Read both private and NEXT_PUBLIC variants to work locally and on Vercel
 const SUPABASE_URL =
