@@ -1,6 +1,6 @@
 import { NextResponse } from 'next/server'
-import { createClient } from '@supabase/supabase-js'
 import { supabaseAdmin } from '../../../../../lib/supabaseAdmin'
+import { supabase } from '../../../../../lib/supabase'
 import { compile as compileFromSpec } from '../../../../../lib/compiler'
 import crypto from 'node:crypto'
 import { proposeSpecPatch } from '../../../../../lib/llm/spec_editor'
@@ -73,11 +73,7 @@ export async function POST(req, { params }) {
     const token = authHeader.startsWith('Bearer ') ? authHeader.slice(7) : null
     if (!token) return NextResponse.json({ success: false, error: 'Unauthorized' }, { status: 401 })
 
-    const userClient = createClient(SUPABASE_URL, SUPABASE_ANON, {
-      global: { headers: { Authorization: `Bearer ${token}` } },
-      auth: { persistSession: false }
-    })
-    const { data: userData, error: userErr } = await userClient.auth.getUser()
+    const { data: userData, error: userErr } = await supabase.auth.getUser(token)
     if (userErr || !userData?.user) return NextResponse.json({ success: false, error: 'Unauthorized' }, { status: 401 })
     const user = userData.user
 
