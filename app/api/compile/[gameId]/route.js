@@ -1,7 +1,7 @@
 // app/api/compile/[gameId]/route.js
 import { NextResponse } from 'next/server'
 import { createClient } from '@supabase/supabase-js'
-import { getAdminSupabase } from '../../../../lib/supabaseServer.server'
+import { getAdminSupabase } from '../../../../lib/supabaseServer.server.js'
 import { compile as compileFromSpec } from '../../../../lib/compiler'
 
 export const dynamic = 'force-dynamic' // avoid caching in prod
