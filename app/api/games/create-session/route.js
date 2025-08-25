@@ -4,7 +4,7 @@ export const dynamic = 'force-dynamic';
 
 import { NextResponse } from 'next/server';
 import { createClient } from '@supabase/supabase-js';
-import { supabaseAdmin } from '../../../../lib/supabaseServer';
+import { getAdminSupabase } from '../../../../lib/supabaseServer.server';
 
 // Read both private and NEXT_PUBLIC variants to work locally and on Vercel
 const SUPABASE_URL =
@@ -61,8 +61,9 @@ export async function POST(req) {
     const user = userData.user;
 
     // 3) Insert draft using the admin client (bypasses RLS safely on server)
+    const supabase = getAdminSupabase();
     const autoDeleteAt = new Date(Date.now() + 72 * 3600 * 1000).toISOString();
-    const { data, error } = await supabaseAdmin
+    const { data, error } = await supabase
       .from('games')
       .insert({
         title: 'Untitled Game',
