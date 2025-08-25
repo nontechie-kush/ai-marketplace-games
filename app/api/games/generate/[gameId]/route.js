@@ -1,10 +1,19 @@
+export const runtime = 'nodejs';
+export const dynamic = 'force-dynamic';
+
 import { NextResponse } from 'next/server'
 import { getAdminSupabase } from '../../../../../lib/supabaseServer'
-import { supabase } from '../../../../../lib/supabase'
+import { createClient } from '@supabase/supabase-js'
 import { compile as compileFromSpec } from '../../../../../lib/compiler'
-import crypto from 'node:crypto'
 import { proposeSpecPatch } from '../../../../../lib/llm/spec_editor'
 import { MODEL as ANTHROPIC_MODEL } from '../../../../../lib/llm/client'
+
+const SUPABASE_URL =
+  process.env.SUPABASE_URL || process.env.NEXT_PUBLIC_SUPABASE_URL || '';
+const SUPABASE_ANON =
+  process.env.SUPABASE_ANON_KEY ||
+  process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY ||
+  '';
 
 /** RFC6902 minimal applier: add/replace/remove */
 function applyJsonPatch(target, ops = []) {
@@ -63,9 +72,16 @@ function safeCompile(spec) {
 
 export async function POST(req, { params }) {
   try {
-    const supabaseAdmin = getAdminSupabase();
     const { gameId } = params
     const { prompt } = await req.json()
+
+    if (!SUPABASE_URL || !SUPABASE_ANON) {
+      return NextResponse.json(
+        { success: false, error: 'Supabase envs missing' },
+        { status: 500 }
+      );
+    }
+
     if (!gameId) throw new Error('Missing gameId')
     if (!prompt) throw new Error('Missing prompt')
 
@@ -74,17 +90,25 @@ export async function POST(req, { params }) {
     const token = authHeader.startsWith('Bearer ') ? authHeader.slice(7) : null
     if (!token) return NextResponse.json({ success: false, error: 'Unauthorized' }, { status: 401 })
 
-    const { data: userData, error: userErr } = await supabase.auth.getUser(token)
-    if (userErr || !userData?.user) return NextResponse.json({ success: false, error: 'Unauthorized' }, { status: 401 })
+    const userClient = createClient(SUPABASE_URL, SUPABASE_ANON, {
+      global: { headers: { Authorization: `Bearer ${token}` } },
+      auth: { persistSession: false },
+    });
+    const { data: userData, error: userErr } = await userClient.auth.getUser();
+    if (userErr || !userData?.user) {
+      if (userErr) console.error('[generate] getUser error:', userErr);
+      return NextResponse.json({ success: false, error: 'Unauthorized' }, { status: 401 });
+    }
     const user = userData.user
 
     // 2) Ownership + fetch current fields we need
+    const supabaseAdmin = getAdminSupabase();
     const { data: gameRow, error: fetchErr } = await supabaseAdmin
       .from('games')
       .select('id, creator_id, spec_json, brief_summary, conversation_history')
       .eq('id', gameId)
       .single()
-    if (fetchErr) return NextResponse.json({ success: false, error: 'Game not found' }, { status: 404 })
+    if (fetchErr || !gameRow) return NextResponse.json({ success: false, error: 'Game not found' }, { status: 404 })
     if (gameRow.creator_id && gameRow.creator_id !== user.id) return NextResponse.json({ success: false, error: 'Forbidden' }, { status: 403 })
 
     // 3) Patch spec via Anthropic (with caching), then compile
