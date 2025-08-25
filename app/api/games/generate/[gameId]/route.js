@@ -1,5 +1,5 @@
 import { NextResponse } from 'next/server'
-import { supabaseAdmin } from '../../../../../lib/supabaseAdmin'
+import { getAdminSupabase } from '../../../../../lib/supabaseServer'
 import { supabase } from '../../../../../lib/supabase'
 import { compile as compileFromSpec } from '../../../../../lib/compiler'
 import crypto from 'node:crypto'
@@ -63,6 +63,7 @@ function safeCompile(spec) {
 
 export async function POST(req, { params }) {
   try {
+    const supabaseAdmin = getAdminSupabase();
     const { gameId } = params
     const { prompt } = await req.json()
     if (!gameId) throw new Error('Missing gameId')
