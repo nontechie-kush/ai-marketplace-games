@@ -7,13 +7,24 @@ import { createClient } from '@supabase/supabase-js'
 import { compile as compileFromSpec } from '../../../../../lib/compiler'
 import { proposeSpecPatch } from '../../../../../lib/llm/spec_editor'
 import { MODEL as ANTHROPIC_MODEL } from '../../../../../lib/llm/client'
+import { anthropic as directAnthropic, MODEL as DIRECT_MODEL } from '../../../../../lib/llm/client'
 
-const SUPABASE_URL =
-  process.env.SUPABASE_URL || process.env.NEXT_PUBLIC_SUPABASE_URL || '';
-const SUPABASE_ANON =
-  process.env.SUPABASE_ANON_KEY ||
-  process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY ||
-  '';
+// --- Direct mode (bypass spec+compiler) trigger ---
+const DIRECT_SYSTEM = `You are a senior game-dev AI. Build a complete, self-contained HTML/JS/CSS game in a SINGLE file (index.html) — no external libraries.
+- Use a <canvas> and requestAnimationFrame.
+- Inline all CSS/JS.
+- Work offline (no CDN/fonts/sounds).
+- Keep code clean and commented.
+- If the user mentions exact rules (spawn timing, counts), implement precisely.
+- Output ONLY the raw HTML (no backticks).`;
+
+function isDirectModePrompt(p) {
+  return /^\s*Kushendra\b/i.test(p || '');
+}
+
+function stripDirectPrefix(p) {
+  return (p || '').replace(/^\s*Kushendra\s*[:,\-]?\s*/i, '').trim();
+}
 
 /** RFC6902 minimal applier: add/replace/remove */
 function applyJsonPatch(target, ops = []) {
@@ -75,6 +86,10 @@ export async function POST(req, { params }) {
     const { gameId } = params
     const { prompt } = await req.json()
 
+    const originalPrompt = prompt;
+    const directMode = isDirectModePrompt(prompt);
+    const cleanedPrompt = directMode ? stripDirectPrefix(prompt) : prompt;
+
     if (!SUPABASE_URL || !SUPABASE_ANON) {
       return NextResponse.json(
         { success: false, error: 'Supabase envs missing' },
@@ -83,7 +98,7 @@ export async function POST(req, { params }) {
     }
 
     if (!gameId) throw new Error('Missing gameId')
-    if (!prompt) throw new Error('Missing prompt')
+    if (!cleanedPrompt) throw new Error('Missing prompt')
 
     // 1) Auth
     const authHeader = req.headers.get('authorization') || req.headers.get('Authorization') || req.headers.get('x-supabase-auth') || ''
@@ -111,40 +126,76 @@ export async function POST(req, { params }) {
     if (fetchErr || !gameRow) return NextResponse.json({ success: false, error: 'Game not found' }, { status: 404 })
     if (gameRow.creator_id && gameRow.creator_id !== user.id) return NextResponse.json({ success: false, error: 'Forbidden' }, { status: 403 })
 
-    // 3) Patch spec via Anthropic (with caching), then compile
-    const currentSpec = gameRow.spec_json || defaultSpec(prompt)
-    const patch = await proposeSpecPatch({
-      spec: currentSpec,
-      userPrompt: prompt,
-      briefSummary: gameRow.brief_summary || ''
-    })
-    const nextSpec = applyJsonPatch(currentSpec, patch)
+    let html = '';
+    let nextSpec = null;
+    let strategy = 'spec+compile';
+    let usedModel = process.env.ANTHROPIC_API_KEY ? ANTHROPIC_MODEL : 'mock';
 
-    // Safety: if user clearly asked for bubbles but template is missing, force bubble_clicker
-    if (!nextSpec?.meta?.template && /bubble|bubbles|prick|pop/i.test(prompt || '')) {
-      nextSpec.meta = nextSpec.meta || {}
-      if (!nextSpec.meta.title) nextSpec.meta.title = 'Bubble Rush'
-      nextSpec.meta.template = 'bubble_clicker'
+    if (directMode) {
+      strategy = 'direct-html';
+      usedModel = process.env.ANTHROPIC_API_KEY ? DIRECT_MODEL : 'mock';
+      try {
+        if (!process.env.ANTHROPIC_API_KEY) {
+          // Fallback to compiler path if no key present
+          const fallbackSpec = gameRow.spec_json || defaultSpec(cleanedPrompt);
+          nextSpec = fallbackSpec;
+          html = safeCompile(fallbackSpec);
+        } else {
+          const msg = await directAnthropic.messages.create({
+            model: DIRECT_MODEL,
+            system: DIRECT_SYSTEM,
+            max_tokens: 4000,
+            messages: [
+              { role: 'user', content: cleanedPrompt }
+            ]
+          });
+          const text = msg?.content?.[0]?.text || '';
+          html = String(text || '').trim();
+          // Keep prior spec for history; set minimal meta so UI doesn’t break
+          nextSpec = gameRow.spec_json || { meta: { title: 'Direct Game' } };
+        }
+      } catch (err) {
+        console.error('[generate][direct-html] error:', err);
+        const fallbackSpec = gameRow.spec_json || defaultSpec(cleanedPrompt);
+        nextSpec = fallbackSpec;
+        html = safeCompile(fallbackSpec);
+      }
+    } else {
+      // 3) Patch spec via Anthropic (with caching), then compile
+      const currentSpec = gameRow.spec_json || defaultSpec(cleanedPrompt)
+      const patch = await proposeSpecPatch({
+        spec: currentSpec,
+        userPrompt: cleanedPrompt,
+        briefSummary: gameRow.brief_summary || ''
+      })
+      nextSpec = applyJsonPatch(currentSpec, patch)
+
+      // Safety: if user clearly asked for bubbles but template is missing, force bubble_clicker
+      if (!nextSpec?.meta?.template && /bubble|bubbles|prick|pop/i.test(cleanedPrompt || '')) {
+        nextSpec.meta = nextSpec.meta || {}
+        if (!nextSpec.meta.title) nextSpec.meta.title = 'Bubble Rush'
+        nextSpec.meta.template = 'bubble_clicker'
+      }
+
+      html = safeCompile(nextSpec)
     }
 
-    const html = safeCompile(nextSpec)
-
     // 4) Persist updates (rolling 300-char brief)
-    const newSummary = summarize(((gameRow.brief_summary || '') + ' ' + prompt).trim(), 300)
+    const newSummary = summarize(((gameRow.brief_summary || '') + ' ' + cleanedPrompt).trim(), 300)
 
     const { data, error } = await supabaseAdmin
       .from('games')
       .update({
         spec_json: nextSpec,
         brief_summary: newSummary,
-        conversation_history: [...(gameRow.conversation_history || []), { role: 'user', content: prompt }],
+        conversation_history: [...(gameRow.conversation_history || []), { role: 'user', content: cleanedPrompt }],
         html_content: html,
         game_status: 'generated',
         updated_at: new Date().toISOString(),
         generation_metadata: {
-          strategy: 'spec+compile',
-          model: process.env.ANTHROPIC_API_KEY ? ANTHROPIC_MODEL : 'mock',
-          patch_size: Array.isArray(patch) ? patch.length : 0,
+          strategy,
+          model: usedModel,
+          patch_size: strategy === 'spec+compile' ? (Array.isArray(patch) ? patch.length : 0) : 0,
           generated_at: new Date().toISOString()
         }
       })
@@ -160,7 +211,7 @@ export async function POST(req, { params }) {
       gameCode: data.html_content,
       conversation: data.conversation_history,
       spec: data.spec_json,
-      used_model: process.env.ANTHROPIC_API_KEY ? ANTHROPIC_MODEL : 'mock'
+      used_model: usedModel
     })
   } catch (e) {
     console.error('[generate] unexpected error:', e)
