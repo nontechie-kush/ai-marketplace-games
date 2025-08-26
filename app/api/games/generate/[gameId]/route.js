@@ -25,6 +25,15 @@ function isDirectModePrompt(p) {
 function stripDirectPrefix(p) {
   return (p || '').replace(/^\s*Kushendra\s*[:,\-]?\s*/i, '').trim();
 }
+// --- Supabase envs for user client (required on server) ---
+const SUPABASE_URL =
+  process.env.SUPABASE_URL ||
+  process.env.NEXT_PUBLIC_SUPABASE_URL ||
+  '';
+const SUPABASE_ANON =
+  process.env.SUPABASE_ANON_KEY ||
+  process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY ||
+  '';
 
 /** RFC6902 minimal applier: add/replace/remove */
 function applyJsonPatch(target, ops = []) {
