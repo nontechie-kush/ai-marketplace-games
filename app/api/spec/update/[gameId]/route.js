@@ -1,4 +1,3 @@
-// app/api/spec/update/[gameId]/route.js
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
 
@@ -10,6 +9,11 @@ import { proposeSpecPatch } from '@/lib/llm/spec_editor';
 // Two-client pattern: anon for user auth, admin for privileged writes
 const SUPABASE_URL = process.env.NEXT_PUBLIC_SUPABASE_URL;
 const SUPABASE_ANON = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY;
+
+// Basic env guards to avoid confusing runtime failures
+if (!SUPABASE_URL || !SUPABASE_ANON) {
+  console.error('[spec/update] Missing NEXT_PUBLIC_SUPABASE_URL or NEXT_PUBLIC_SUPABASE_ANON_KEY');
+}
 
 // ---------- small helpers ----------
 function applyJsonPatch(target, ops = []) {
@@ -102,7 +106,14 @@ export async function POST(req, { params }) {
       userPrompt: prompt,
       briefSummary: gameRow.brief_summary || ''
     });
-    const nextSpec = applyJsonPatch(currentSpec, patch);
+    // Defensive: ensure we only apply an array of RFC-6902 ops
+    const safePatch = Array.isArray(patch) ? patch : [];
+    if (!Array.isArray(patch)) {
+      console.warn('[spec/update] non-array patch from spec_editor; ignoring. typeof =', typeof patch);
+    } else {
+      console.log('[spec/update] patch ops:', safePatch.length);
+    }
+    const nextSpec = applyJsonPatch(currentSpec, safePatch);
 
     // ---- Persist (no html compilation here)
     const updatedConversation = [
@@ -121,7 +132,8 @@ export async function POST(req, { params }) {
         generation_metadata: {
           strategy: 'patchOnly',
           model: process.env.ANTHROPIC_API_KEY ? 'claude-3-5-haiku-latest' : 'mock',
-          patch_size: Array.isArray(patch) ? patch.length : 0,
+          patch_size: Array.isArray(safePatch) ? safePatch.length : 0,
+          patch_preview: Array.isArray(safePatch) ? safePatch.slice(0, 3) : [],
           generated_at: new Date().toISOString()
         }
       })
@@ -130,6 +142,8 @@ export async function POST(req, { params }) {
       .single();
 
     if (error) return NextResponse.json({ success: false, error: error.message }, { status: 500 });
+
+    console.log('[spec/update] resulting spawn:', nextSpec?.rules?.spawn);
 
     return NextResponse.json({
       success: true,
