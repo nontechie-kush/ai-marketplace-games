@@ -172,13 +172,13 @@ export async function POST(req, { params }) {
       }
     } else {
       // 3) Patch spec via Anthropic (with caching), then compile
+      const currentSpec = gameRow.spec_json || defaultSpec(cleanedPrompt);
       patch = await proposeSpecPatch({
         spec: currentSpec,
         userPrompt: cleanedPrompt,
         briefSummary: gameRow.brief_summary || ''
-      })
-      const currentSpec = gameRow.spec_json || defaultSpec(cleanedPrompt)
-      nextSpec = applyJsonPatch(currentSpec, patch)
+      });
+      nextSpec = applyJsonPatch(currentSpec, patch);
 
       // Safety: if user clearly asked for bubbles but template is missing, force bubble_clicker
       if (!nextSpec?.meta?.template && /bubble|bubbles|prick|pop/i.test(cleanedPrompt || '')) {
