@@ -1,4 +1,3 @@
-// app/api/games/generate/[gameId]/route.js
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
 
@@ -101,14 +100,23 @@ function safeCompile(spec) {
 }
 
 export async function POST(req, { params }) {
+  console.time('[generate] total');
+  const _startTs = Date.now();
   try {
+    console.info('[generate] init');
+
     const { gameId } = params;
     const { prompt } = await req.json();
+
+    console.info('[generate] params', { gameId, hasPrompt: !!prompt, promptLen: (prompt || '').length });
 
     const directMode = isDirectModePrompt(prompt);
     const cleanedPrompt = directMode ? stripDirectPrefix(prompt) : prompt;
 
+    console.info('[generate] mode', { directMode, cleanedPromptPreview: (cleanedPrompt || '').slice(0, 120) });
+
     if (!SUPABASE_URL || !SUPABASE_ANON) {
+      console.error('[generate] missing supabase envs', { hasUrl: !!SUPABASE_URL, hasAnon: !!SUPABASE_ANON });
       return NextResponse.json(
         { success: false, error: 'Supabase envs missing' },
         { status: 500 }
@@ -117,6 +125,8 @@ export async function POST(req, { params }) {
     if (!gameId) throw new Error('Missing gameId');
     if (!cleanedPrompt) throw new Error('Missing prompt');
 
+    console.info('[generate] validated inputs');
+
     // 1) Auth — user client with Bearer token (RLS on)
     const authHeader =
       req.headers.get('authorization') ||
@@ -124,6 +134,9 @@ export async function POST(req, { params }) {
       req.headers.get('x-supabase-auth') ||
       '';
     const token = authHeader.startsWith('Bearer ') ? authHeader.slice(7) : null;
+
+    console.info('[generate] token present', { tokenLen: token ? token.length : 0 });
+
     if (!token) {
       return NextResponse.json(
         { success: false, error: 'Unauthorized' },
@@ -136,6 +149,11 @@ export async function POST(req, { params }) {
       auth: { persistSession: false }
     });
     const { data: userData, error: userErr } = await userClient.auth.getUser();
+
+    if (!userErr && userData?.user) {
+      console.info('[generate] user', { userId: userData.user.id });
+    }
+
     if (userErr || !userData?.user) {
       if (userErr) console.error('[generate] getUser error:', userErr);
       return NextResponse.json(
@@ -157,6 +175,9 @@ export async function POST(req, { params }) {
         { success: false, error: 'Game not found' },
         { status: 404 }
       );
+
+    console.info('[generate] loaded game', { hasSpec: !!gameRow.spec_json, creatorId: gameRow.creator_id });
+
     if (gameRow.creator_id && gameRow.creator_id !== user.id)
       return NextResponse.json(
         { success: false, error: 'Forbidden' },
@@ -169,9 +190,13 @@ export async function POST(req, { params }) {
     let usedModel = process.env.ANTHROPIC_API_KEY ? LLM_MODEL : 'mock';
     let patch = null;
 
+    console.info('[generate] deciding strategy', { directMode, hasAnthropic: !!process.env.ANTHROPIC_API_KEY });
+
     // 3) Decide path
     if (directMode) {
       strategy = 'direct-html';
+      console.time('[generate][direct] llm');
+      console.info('[generate][direct] start', { model: LLM_MODEL });
       try {
         if (!process.env.ANTHROPIC_API_KEY || !llmClient?.messages?.create) {
           // No key or client — fallback to compiler path
@@ -187,11 +212,14 @@ export async function POST(req, { params }) {
           });
           const text = msg?.content?.[0]?.text || '';
           html = String(text || '').trim();
+          console.info('[generate][direct] html chars', { length: html.length });
+          console.timeEnd('[generate][direct] llm');
           // keep prior spec so UI doesn’t break
           nextSpec = gameRow.spec_json || { meta: { title: 'Direct Game' } };
         }
       } catch (err) {
         console.error('[generate][direct-html] error:', err);
+        console.info('[generate][direct] fallback to compiler');
         const fallbackSpec = gameRow.spec_json || defaultSpec(cleanedPrompt);
         nextSpec = fallbackSpec;
         html = safeCompile(fallbackSpec);
@@ -199,11 +227,14 @@ export async function POST(req, { params }) {
     } else {
       // LLM -> patch -> compile path
       const currentSpec = gameRow.spec_json || defaultSpec(cleanedPrompt);
+      console.time('[generate][spec] propose');
       patch = await proposeSpecPatch({
         spec: currentSpec,
         userPrompt: cleanedPrompt,
         briefSummary: gameRow.brief_summary || ''
       });
+      console.timeEnd('[generate][spec] propose');
+      console.info('[generate][spec] patch', { ops: Array.isArray(patch) ? patch.length : 0 });
       nextSpec = applyJsonPatch(currentSpec, patch);
 
       // If user clearly asked for bubbles but template missing, force bubble_clicker for safety
@@ -214,6 +245,7 @@ export async function POST(req, { params }) {
       }
 
       html = safeCompile(nextSpec);
+      console.info('[generate][spec] compiled html chars', { length: (html || '').length });
     }
 
     // 4) Persist (rolling summary + conversation)
@@ -221,6 +253,8 @@ export async function POST(req, { params }) {
       ((gameRow.brief_summary || '') + ' ' + cleanedPrompt).trim(),
       300
     );
+
+    console.info('[generate] persisting', { strategy, usedModel, hasHtml: !!html });
 
     const { data, error } = await supabaseAdmin
       .from('games')
@@ -246,6 +280,8 @@ export async function POST(req, { params }) {
       .select('id, html_content, conversation_history, spec_json')
       .single();
 
+    console.info('[generate] update ok', { id: data?.id });
+
     if (error)
       return NextResponse.json(
         { success: false, error: error.message },
@@ -260,7 +296,10 @@ export async function POST(req, { params }) {
       used_model: usedModel
     });
   } catch (e) {
-    console.error('[generate] unexpected error:', e);
+    console.error('[generate] unexpected error:', e?.stack || e);
     return NextResponse.json({ success: false, error: e.message }, { status: 500 });
+  } finally {
+    console.timeEnd('[generate] total');
+    console.info('[generate] done in ms', Date.now() - _startTs);
   }
 }
