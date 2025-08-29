@@ -139,6 +139,7 @@ export async function POST(req, { params }) {
     let nextSpec = null;
     let strategy = 'spec+compile';
     let usedModel = process.env.ANTHROPIC_API_KEY ? ANTHROPIC_MODEL : 'mock';
+    let patch = null;
 
     if (directMode) {
       strategy = 'direct-html';
@@ -171,12 +172,12 @@ export async function POST(req, { params }) {
       }
     } else {
       // 3) Patch spec via Anthropic (with caching), then compile
-      const currentSpec = gameRow.spec_json || defaultSpec(cleanedPrompt)
-      const patch = await proposeSpecPatch({
+      patch = await proposeSpecPatch({
         spec: currentSpec,
         userPrompt: cleanedPrompt,
         briefSummary: gameRow.brief_summary || ''
       })
+      const currentSpec = gameRow.spec_json || defaultSpec(cleanedPrompt)
       nextSpec = applyJsonPatch(currentSpec, patch)
 
       // Safety: if user clearly asked for bubbles but template is missing, force bubble_clicker
@@ -204,7 +205,7 @@ export async function POST(req, { params }) {
         generation_metadata: {
           strategy,
           model: usedModel,
-          patch_size: strategy === 'spec+compile' ? (Array.isArray(patch) ? patch.length : 0) : 0,
+          patch_size: (strategy === 'spec+compile' && Array.isArray(patch)) ? patch.length : 0,
           generated_at: new Date().toISOString()
         }
       })
