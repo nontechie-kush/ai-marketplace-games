@@ -24,6 +24,18 @@ async function getFreshToken() {
   return token
 }
 
+// Minimal local helper to enforce "single-file HTML game" defaults
+function overrideOpsFromPrompt(_prompt) {
+  return {
+    forceSingleFile: true,
+    inlineCSS: true,
+    inlineJS: true,
+    preferCanvas: true,
+    requireGameStates: true,
+    targetFPS: 60,
+  };
+}
+
 export default function CreateGamePage() {
   const [gameId, setGameId] = useState(null)
   const [messages, setMessages] = useState([
@@ -146,6 +158,7 @@ export default function CreateGamePage() {
     messagesEndRef.current?.scrollIntoView({ behavior: "smooth" })
   }
 
+  
   async function handleSendMessage() {
     if (!input.trim() || isGenerating || !gameId) {
       console.log('[send] blocked', { hasInput: !!input.trim(), isGenerating, gameId })
@@ -163,6 +176,7 @@ export default function CreateGamePage() {
     console.log('[send] token', !!token)
 
     try {
+      const ops = overrideOpsFromPrompt(userMessage);
       const response = await fetch(`/api/games/generate/${gameId}`, {
         method: 'POST',
         headers: {
@@ -171,7 +185,8 @@ export default function CreateGamePage() {
         },
         body: JSON.stringify({
           prompt: userMessage,
-          conversationHistory: newMessages
+          conversationHistory: newMessages,
+          ops
         })
       })
       console.log('[send] fetch done', { status: response.status })
