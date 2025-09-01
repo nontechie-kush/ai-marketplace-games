@@ -1,10 +1,30 @@
-// app/api/compile/[gameId]/route.js
 import { NextResponse } from 'next/server'
 import { createClient } from '@supabase/supabase-js'
 import { getAdminSupabase } from '../../../../lib/supabaseServer.server.js'
 import { compile as compileFromSpec } from '../../../../lib/compiler'
 
 export const dynamic = 'force-dynamic' // avoid caching in prod
+
+// Optional client-provided options; we accept and ignore safely to avoid 500s
+const DEFAULT_OPS = {
+  forceSingleFile: true,
+  inlineCSS: true,
+  inlineJS: true,
+  preferCanvas: true,
+  requireGameStates: true,
+  targetFPS: 60,
+};
+function coerceOps(maybeOps) {
+  if (!maybeOps || typeof maybeOps !== 'object') return { ...DEFAULT_OPS };
+  return {
+    forceSingleFile: !!maybeOps.forceSingleFile ?? true,
+    inlineCSS: !!maybeOps.inlineCSS ?? true,
+    inlineJS: !!maybeOps.inlineJS ?? true,
+    preferCanvas: !!maybeOps.preferCanvas ?? true,
+    requireGameStates: !!maybeOps.requireGameStates ?? true,
+    targetFPS: Number.isFinite(maybeOps.targetFPS) ? Number(maybeOps.targetFPS) : 60,
+  };
+}
 
 const SUPABASE_URL  = process.env.NEXT_PUBLIC_SUPABASE_URL
 const SUPABASE_ANON = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY
@@ -54,6 +74,15 @@ addEventListener('keydown',e=>{
 
 export async function POST(req, { params }) {
   try {
+    // Parse optional body (ignore if not JSON); accept ops for forward-compat
+    let body = null
+    try {
+      body = await req.json()
+    } catch (_) {
+      body = null
+    }
+    const clientOps = coerceOps(body?.ops)
+
     if (!SUPABASE_URL || !SUPABASE_ANON) {
       return NextResponse.json({ success: false, error: 'SUPABASE_URL / SUPABASE_ANON not configured' }, { status: 500 })
     }
@@ -102,22 +131,39 @@ export async function POST(req, { params }) {
     const html = safeCompile(spec)
 
     // Persist only html_content + status
-    const { data: updated, error: upErr } = await supabaseAdmin
+    const baseUpdate = {
+      html_content: html,
+      game_status: 'generated',
+      updated_at: new Date().toISOString(),
+    }
+    const metaUpdate = {
+      ...baseUpdate,
+      generation_metadata: {
+        strategy: 'compileOnly',
+        model: 'none',
+        patch_size: 0,
+        generated_at: new Date().toISOString(),
+        // pass through some non-sensitive hints for observability
+        client_ops: clientOps,
+      }
+    }
+    let updated = null
+    let upErr = null
+    ;({ data: updated, error: upErr } = await supabaseAdmin
       .from('games')
-      .update({
-        html_content: html,
-        game_status: 'generated',
-        updated_at: new Date().toISOString(),
-        generation_metadata: {
-          strategy: 'compileOnly',
-          model: 'none',
-          patch_size: 0,
-          generated_at: new Date().toISOString()
-        }
-      })
+      .update(metaUpdate)
       .eq('id', gameId)
       .select('id, html_content')
-      .single()
+      .single())
+    // If the column `generation_metadata` doesn't exist, retry with base fields only
+    if (upErr && /generation_metadata/i.test(upErr.message || '')) {
+      ;({ data: updated, error: upErr } = await supabaseAdmin
+        .from('games')
+        .update(baseUpdate)
+        .eq('id', gameId)
+        .select('id, html_content')
+        .single())
+    }
 
     if (upErr) {
       return NextResponse.json({ success: false, error: upErr.message }, { status: 500 })
