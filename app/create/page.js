@@ -33,6 +33,7 @@ function overrideOpsFromPrompt(_prompt) {
     preferCanvas: true,
     requireGameStates: true,
     targetFPS: 60,
+    allowCDNAssets: true,
   };
 }
 
@@ -446,6 +447,8 @@ export default function CreateGamePage() {
                 srcDoc={currentGame}
                 className="w-full h-full border border-gray-600 rounded-lg"
                 title="Game Preview"
+                sandbox="allow-scripts allow-same-origin allow-pointer-lock allow-popups allow-popups-to-escape-sandbox"
+                allow="autoplay; clipboard-read; clipboard-write"
               />
             ) : (
               <div className="w-full h-full border-2 border-dashed border-gray-600 rounded-lg flex items-center justify-center">
