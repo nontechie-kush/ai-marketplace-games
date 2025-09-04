@@ -6,6 +6,7 @@ export type GenerateOps = {
   preferCanvas: boolean
   requireGameStates: boolean
   targetFPS: number
+  allowCDNAssets: boolean,
 }
 
 const DEFAULT_OPS: GenerateOps = {
@@ -15,6 +16,7 @@ const DEFAULT_OPS: GenerateOps = {
   preferCanvas: true,
   requireGameStates: true,
   targetFPS: 60,
+  allowCDNAssets: true,
 }
 
 /**
